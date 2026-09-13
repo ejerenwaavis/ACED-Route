@@ -4,12 +4,17 @@ const User = require('../models/User');
 
 // NOTE: callbackURL must match EXACTLY what you registered in Google Cloud
 // Console — you configured "/api/auth/googleLoggedIn", so that's what's here.
+// Configure Google Strategy if clientID is available, or load placeholder to prevent startup crash
+const clientID = process.env.GOOGLE_CLIENT_ID || 'placeholder_client_id';
+const clientSecret = process.env.GOOGLE_CLIENT_SECRET || 'placeholder_client_secret';
+const callbackURL = process.env.GOOGLE_CALLBACK_URL || 'https://route.aceddivision.com/api/auth/googleLoggedIn';
+
 passport.use(
   new GoogleStrategy(
     {
-      clientID: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL // e.g. https://route.aceddivision.com/api/auth/googleLoggedIn
+      clientID,
+      clientSecret,
+      callbackURL
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
