@@ -66,3 +66,24 @@ jobs:
           name: aced-route-debug-apk
           path: mobile/android/app/build/outputs/apk/debug/*.apk
           retention-days: 30
+
+      - name: Deploy APK to Namecheap Server
+        env:
+          SSH_KEY: ${{ secrets.NAMECHEAP_SSH_KEY || secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.NAMECHEAP_HOST || secrets.SSH_HOST || '198.54.115.163' }}
+          SSH_USER: ${{ secrets.NAMECHEAP_USER || secrets.SSH_USER || 'acedzagz' }}
+          SSH_PORT: ${{ secrets.NAMECHEAP_PORT || secrets.SSH_PORT || '21098' }}
+        run: |
+          if [ -z "$SSH_KEY" ]; then
+            echo "::warning ::SSH_PRIVATE_KEY or NAMECHEAP_SSH_KEY secret not found in GitHub repository settings. Skipping SCP upload."
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          echo "Deploying APK to $SSH_USER@$SSH_HOST:$SSH_PORT..."
+          ssh -p $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST "mkdir -p /home/acedzagz/acedroute/public_html/download"
+          scp -P $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa mobile/android/app/build/outputs/apk/debug/app-debug.apk $SSH_USER@$SSH_HOST:/home/acedzagz/acedroute/public_html/download/acedroute.apk
+          echo "APK successfully published to https://route.aceddivision.com/download/acedroute.apk"

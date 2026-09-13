@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import MapView from '../components/MapView';
 import { api } from '../services/api';
+import { Capacitor } from '@capacitor/core';
+import NativeHandoffModal from '../components/NativeHandoffModal';
 
 export default function NavigationPage({ manifest, stops: initialStops, onRouteComplete }) {
   const [stops, setStops] = useState(initialStops || []);
@@ -21,6 +23,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const [brandName, setBrandName] = useState(null);
   const [brandLoading, setBrandLoading] = useState(false);
   const [showGateModal, setShowGateModal] = useState(false);
+  const [showNativeHandoff, setShowNativeHandoff] = useState(false);
   const [gateInput, setGateInput] = useState('');
   const [notesInput, setNotesInput] = useState('');
   const [completingRoute, setCompletingRoute] = useState(false);
@@ -50,13 +53,19 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   // Turn-by-Turn Navigation Launch
   const handleLaunchNavigation = () => {
     if (!activeStop) return;
+
+    // Intercept web browser: native app is required for turn-by-turn navigation
+    if (!Capacitor.isNativePlatform()) {
+      setShowNativeHandoff(true);
+      return;
+    }
+
     const coords = activeAddr.location?.coordinates || [-73.9851, 40.7488];
     const [lng, lat] = coords;
     const street = activeAddr.street || activeAddr.raw || '';
 
     // Android Google Maps navigation intent
     const googleNavUri = `google.navigation:q=${lat},${lng}&mode=d`;
-    // Universal web fallback
     const webMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
       lat && lng ? `${lat},${lng}` : street
     )}`;
@@ -443,6 +452,13 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
           </div>
         </div>
       )}
+
+      <NativeHandoffModal
+        isOpen={showNativeHandoff}
+        onClose={() => setShowNativeHandoff(false)}
+        schemeUri={`acedroute://manifest/${manifest?._id || ''}?stop=${currentIndex}`}
+        message="To download offline maps and use turn-by-turn navigation, you must use the ACED Route mobile app."
+      />
     </div>
   );
 }
