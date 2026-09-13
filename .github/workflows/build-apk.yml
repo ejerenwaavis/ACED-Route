@@ -58,8 +58,14 @@ jobs:
       - name: Configure Gradle Environment
         run: |
           mkdir -p mobile/android
-          touch mobile/android/gradle.properties
-          echo "GOOGLE_MAPS_API_KEY=" >> mobile/android/gradle.properties
+          cat << 'EOF' > mobile/android/gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m
+          GOOGLE_MAPS_API_KEY=
+          EOF
+          mkdir -p mobile/plugins/aced-routing/android
+          cp mobile/android/gradle.properties mobile/plugins/aced-routing/android/gradle.properties
 
       - name: Grant Execute Permission for Gradle Wrapper
         run: chmod +x mobile/android/gradlew
