@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UploadCloud, ListOrdered, Navigation, Clock, ShieldCheck } from 'lucide-react';
 import Header from './components/Header';
-import LoginModal from './components/LoginModal';
+import LoginScreen from './components/LoginModal';
 import UploadPage from './pages/UploadPage';
 import SequencerPage from './pages/SequencerPage';
 import NavigationPage from './pages/NavigationPage';
@@ -10,7 +10,6 @@ import { getUser, getToken, setToken } from './services/api';
 
 export default function App() {
   const [user, setUser] = useState(getUser());
-  const [showLogin, setShowLogin] = useState(!getToken());
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'sequencer' | 'navigation' | 'history'
 
   const [activeManifest, setActiveManifest] = useState(null);
@@ -24,7 +23,6 @@ export default function App() {
     if (token) {
       setToken(token);
       setUser(getUser());
-      setShowLogin(false);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -40,7 +38,6 @@ export default function App() {
                 if (deepToken) {
                   setToken(deepToken);
                   setUser(getUser());
-                  setShowLogin(false);
                 }
               }
             } catch (e) {
@@ -51,6 +48,15 @@ export default function App() {
         .catch(() => {});
     }
   }, []);
+
+  // Strict Authentication Gate: Never render internal app components if not authenticated
+  if (!user) {
+    return (
+      <LoginScreen
+        onLoginSuccess={() => setUser(getUser())}
+      />
+    );
+  }
 
   const handleManifestUploaded = (manifest) => {
     setActiveManifest(manifest);
@@ -79,9 +85,7 @@ export default function App() {
         user={user}
         onAuthChange={(u) => {
           setUser(u);
-          if (!u) setShowLogin(true);
         }}
-        onOpenLogin={() => setShowLogin(true)}
       />
 
       {/* Navigation Bar */}
@@ -156,15 +160,6 @@ export default function App() {
           <HistoryPage onResumeRoute={handleResumeRoute} />
         )}
       </main>
-
-      <LoginModal
-        isOpen={showLogin}
-        onClose={() => setShowLogin(false)}
-        onLoginSuccess={() => {
-          setUser(getUser());
-          setShowLogin(false);
-        }}
-      />
     </div>
   );
 }
