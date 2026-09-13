@@ -6,7 +6,9 @@ export const getApiBase = () => {
   return localStorage.getItem('aced_api_base') || (
     window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? 'http://localhost:3000'
-      : DEFAULT_API_BASE
+      : (window.location.pathname.startsWith('/acedroute')
+          ? `${window.location.origin}/acedroute`
+          : DEFAULT_API_BASE)
   );
 };
 

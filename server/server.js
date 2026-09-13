@@ -19,16 +19,23 @@ app.use(passport.initialize());
 app.use('/api/auth', authRoutes);
 app.use('/api/brand', brandRoutes);
 app.use('/api/manifest', manifestRoutes);
+app.get('/api/health', (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+// Support sub-path mounting (e.g. /acedroute on shared cPanel domain)
+const baseUri = process.env.BASE_URI || '/acedroute';
+app.use(`${baseUri}/api/auth`, authRoutes);
+app.use(`${baseUri}/api/brand`, brandRoutes);
+app.use(`${baseUri}/api/manifest`, manifestRoutes);
+app.get(`${baseUri}/api/health`, (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
 // Serve frontend static build from public_html if present
 const publicHtmlPath = path.join(__dirname, '../public_html');
+app.use(`${baseUri}`, express.static(publicHtmlPath));
 app.use(express.static(publicHtmlPath));
 
 // SPA fallback for client-side routing
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api/')) return next();
+  if (req.path.includes('/api/')) return next();
   const indexPath = path.join(publicHtmlPath, 'index.html');
   res.sendFile(indexPath, (err) => {
     if (err) next();
