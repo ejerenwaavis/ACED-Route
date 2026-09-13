@@ -52,14 +52,26 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
           </button>
 
           {user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 500 }}>
-                {user.name || user.email || 'Driver'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span
+                className="user-name-text"
+                style={{
+                  fontSize: '0.8rem',
+                  color: '#94a3b8',
+                  fontWeight: 500,
+                  maxWidth: '110px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {(user.name || user.email || 'Driver').split(' ')[0]}
               </span>
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={handleLogout}
                 title="Sign Out"
+                style={{ padding: '0.35rem 0.5rem' }}
               >
                 <LogOut size={14} />
               </button>

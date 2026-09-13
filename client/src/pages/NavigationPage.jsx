@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import MapView from '../components/MapView';
 import { api } from '../services/api';
+import { routingService } from '../services/routing';
 import { Capacitor } from '@capacitor/core';
 import NativeHandoffModal from '../components/NativeHandoffModal';
 
@@ -28,6 +29,8 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const [notesInput, setNotesInput] = useState('');
   const [completingRoute, setCompletingRoute] = useState(false);
   const [routeFinished, setRouteFinished] = useState(false);
+  const [activeRouteCoords, setActiveRouteCoords] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
 
   const activeStop = stops[currentIndex] || null;
   const activeAddr = activeStop?.address || {};
@@ -49,6 +52,65 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     setGateInput(activeAddr.gateCode || '');
     setNotesInput(activeStop.notes || activeAddr.notes || '');
   }, [currentIndex, activeStop]);
+
+  // Track Driver GPS Location
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setDriverLocation([pos.coords.longitude, pos.coords.latitude]);
+      },
+      (err) => console.warn('GPS watch notice:', err.message),
+      { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  // Calculate Offline Valhalla Route Leg to Active Stop
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function computeLeg() {
+      if (!activeStop) return;
+      const targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
+      if (!targetCoords || targetCoords.length < 2) return;
+
+      // Valhalla expects [lat, lng]
+      const targetLatLng = [targetCoords[1], targetCoords[0]];
+
+      let originLatLng = null;
+      if (driverLocation && driverLocation.length >= 2) {
+        originLatLng = [driverLocation[1], driverLocation[0]];
+      } else if (currentIndex > 0) {
+        const prev = stops[currentIndex - 1];
+        const prevCoords = prev.address?.location?.coordinates || prev.coordinates;
+        if (prevCoords && prevCoords.length >= 2) {
+          originLatLng = [prevCoords[1], prevCoords[0]];
+        }
+      }
+
+      if (!originLatLng) {
+        originLatLng = [targetLatLng[0] - 0.015, targetLatLng[1] - 0.015];
+      }
+
+      try {
+        const routeResult = await routingService.calculateRoute(originLatLng, targetLatLng);
+        if (!isCancelled && routeResult && routeResult.coordinates && routeResult.coordinates.length) {
+          setActiveRouteCoords(routeResult.coordinates);
+        }
+      } catch (err) {
+        // Fall back gracefully if offline bundle not yet downloaded on current device
+        if (!isCancelled) {
+          setActiveRouteCoords(null);
+        }
+      }
+    }
+
+    computeLeg();
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentIndex, activeStop, driverLocation]);
 
   // Turn-by-Turn Navigation Launch
   const handleLaunchNavigation = () => {
@@ -317,7 +379,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
             style={{ marginTop: '1.25rem', gap: '0.75rem' }}
           >
             <Navigation size={22} />
-            <span>Navigate in Google Maps</span>
+            <span>Navigate to Stop #{currentIndex + 1}</span>
           </button>
 
           {/* Action Buttons: Delivered / Skip */}
@@ -338,7 +400,11 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       <MapView
         stops={stops}
         activeIndex={currentIndex}
+        activeRouteCoordinates={activeRouteCoords}
+        driverLocation={driverLocation}
         onSelectStop={(idx) => setCurrentIndex(idx)}
+        onNavigateHere={(idx) => setCurrentIndex(idx)}
+        onNavigateInSequence={() => advanceToNextPending(stops)}
       />
 
       {/* Stop Sequence Cards */}
