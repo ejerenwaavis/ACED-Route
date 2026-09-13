@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
@@ -41,6 +42,28 @@ app.use(`${baseUri}/regions`, express.static(regionsStaticPath));
 const publicHtmlPath = path.join(__dirname, '../public_html');
 app.use(`${baseUri}`, express.static(publicHtmlPath));
 app.use(express.static(publicHtmlPath));
+
+// Dedicated APK Download Endpoint
+const GITHUB_RELEASE_APK_URL = 'https://github.com/ejerenwaavis/ACED-Route/releases/download/latest-apk/acedroute.apk';
+
+const downloadEndpoints = [
+  '/download',
+  '/download/',
+  '/download/acedroute.apk',
+  `${baseUri}/download`,
+  `${baseUri}/download/`,
+  `${baseUri}/download/acedroute.apk`
+];
+
+app.get(downloadEndpoints, (req, res) => {
+  const localApkPath = path.join(publicHtmlPath, 'download', 'acedroute.apk');
+  if (fs.existsSync(localApkPath)) {
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', 'attachment; filename="acedroute.apk"');
+    return res.download(localApkPath, 'acedroute.apk');
+  }
+  return res.redirect(302, GITHUB_RELEASE_APK_URL);
+});
 
 // SPA fallback for client-side routing
 app.get('*', (req, res, next) => {

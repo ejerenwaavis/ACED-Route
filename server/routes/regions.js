@@ -69,27 +69,38 @@ router.post('/detect', (req, res) => {
       }
     }
 
-    if (targetLat == null || targetLng == null) {
-      return res.status(400).json({ error: 'Provide lat/lng coordinates or an array of stops' });
+    // Match against region bounds if coordinates available
+    let matched = null;
+    if (targetLat != null && targetLng != null) {
+      matched = catalog.regions.find((r) => {
+        const b = r.bounds;
+        if (!b) return false;
+        return (
+          targetLat >= b.minLat &&
+          targetLat <= b.maxLat &&
+          targetLng >= b.minLng &&
+          targetLng <= b.maxLng
+        );
+      });
     }
 
-    // Match against region bounds
-    const matched = catalog.regions.find((r) => {
-      const b = r.bounds;
-      if (!b) return false;
-      return (
-        targetLat >= b.minLat &&
-        targetLat <= b.maxLat &&
-        targetLng >= b.minLng &&
-        targetLng <= b.maxLng
-      );
-    });
+    // Match against address state code if supplied
+    if (!matched && Array.isArray(stops) && stops.length > 0) {
+      const states = stops.map(s => (s.address?.state || s.state || '').toUpperCase().trim()).filter(Boolean);
+      if (states.some(st => st === 'GA' || st.includes('GEORGIA'))) {
+        matched = catalog.regions.find(r => r.id === 'us-ga-metro');
+      } else if (states.some(st => st === 'NY' || st.includes('NEW YORK'))) {
+        matched = catalog.regions.find(r => r.id === 'us-ny-metro');
+      } else if (states.some(st => st === 'DC' || st === 'MD' || st === 'VA')) {
+        matched = catalog.regions.find(r => r.id === 'us-dc');
+      }
+    }
 
     if (matched) {
       return res.json({
         matched: true,
         region: matched,
-        targetCoordinates: [targetLat, targetLng]
+        targetCoordinates: targetLat != null && targetLng != null ? [targetLat, targetLng] : null
       });
     }
 

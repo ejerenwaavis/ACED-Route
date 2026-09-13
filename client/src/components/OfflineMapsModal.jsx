@@ -85,31 +85,80 @@ export default function OfflineMapsModal({ isOpen, onClose, onRegionSelected }) 
     }
   };
 
-  const handleAutoDetect = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
+  const [detecting, setDetecting] = useState(false);
+  const [detectFeedback, setDetectFeedback] = useState(null);
+
+  const handleAutoDetect = async () => {
+    setDetecting(true);
+    setDetectFeedback({ type: 'info', message: 'Detecting depot location...' });
+
+    const matchCoords = async (lat, lng, source) => {
+      try {
+        const res = await api.detectRegion({ lat, lng });
+        if (res && res.region) {
+          setDetectFeedback({
+            type: 'success',
+            message: `Detected: ${res.region.name} (${source})`
+          });
+          const el = document.getElementById(`region-card-${res.region.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth' });
+            el.style.boxShadow = '0 0 0 3px #38bdf8';
+            setTimeout(() => { if (el) el.style.boxShadow = ''; }, 3500);
+          }
+          return true;
+        }
+      } catch (e) {
+        console.error('Region match error:', e);
+      }
+      return false;
+    };
+
+    const tryGeolocation = (options) => {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(new Error('Geolocation not supported'));
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+      });
+    };
+
+    let matched = false;
+
+    // Tier 1: Low-accuracy fast network/wifi position (resolves in <500ms indoors)
+    try {
+      const pos = await tryGeolocation({ enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 });
+      matched = await matchCoords(pos.coords.latitude, pos.coords.longitude, 'Device Location');
+    } catch (err1) {
+      console.warn('Low accuracy geolocation failed, trying high accuracy...', err1);
+      // Tier 2: GPS satellite high accuracy
+      try {
+        const pos = await tryGeolocation({ enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+        matched = await matchCoords(pos.coords.latitude, pos.coords.longitude, 'GPS');
+      } catch (err2) {
+        console.warn('High accuracy geolocation failed, trying IP fallback...', err2);
+      }
     }
 
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res = await api.detectRegion({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude
-          });
-          if (res.region) {
-            alert(`Detected region: ${res.region.name}`);
-            const el = document.getElementById(`region-card-${res.region.id}`);
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }
-        } catch (e) {
-          alert('Failed to detect region: ' + e.message);
+    // Tier 3: IP Geolocation fallback (works indoors even if GPS permission is denied or timed out)
+    if (!matched) {
+      try {
+        setDetectFeedback({ type: 'info', message: 'Checking network location...' });
+        const ipRes = await fetch('https://ipapi.co/json/').then(r => r.json()).catch(() => null);
+        if (ipRes && ipRes.latitude && ipRes.longitude) {
+          matched = await matchCoords(ipRes.latitude, ipRes.longitude, `${ipRes.city || ipRes.region || 'Network'}`);
         }
-      },
-      (err) => alert('Unable to retrieve current location: ' + err.message),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      } catch (ipErr) {
+        console.warn('IP geolocation failed:', ipErr);
+      }
+    }
+
+    if (!matched) {
+      setDetectFeedback({
+        type: 'warning',
+        message: 'Could not pinpoint depot region automatically. Please select your region from the list below.'
+      });
+    }
+
+    setDetecting(false);
   };
 
   if (!isOpen) return null;
@@ -167,16 +216,71 @@ export default function OfflineMapsModal({ isOpen, onClose, onRegionSelected }) 
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
-            <button className="btn btn-secondary btn-sm" onClick={handleAutoDetect} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Compass size={14} />
-              <span>Detect Current Depot Region</span>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleAutoDetect}
+              disabled={detecting}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              {detecting ? <RefreshCw size={14} className="spin" /> : <Compass size={14} />}
+              <span>{detecting ? 'Detecting Region...' : 'Detect Current Depot Region'}</span>
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={loadCatalog} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={loadCatalog}
+              disabled={detecting || loading}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
               <RefreshCw size={14} />
               <span>Refresh</span>
             </button>
           </div>
+
+          {detectFeedback && (
+            <div
+              style={{
+                padding: '0.65rem 0.85rem',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background:
+                  detectFeedback.type === 'success'
+                    ? 'rgba(34, 197, 94, 0.15)'
+                    : detectFeedback.type === 'warning'
+                    ? 'rgba(234, 179, 8, 0.15)'
+                    : detectFeedback.type === 'error'
+                    ? 'rgba(239, 68, 68, 0.15)'
+                    : 'rgba(56, 189, 248, 0.15)',
+                color:
+                  detectFeedback.type === 'success'
+                    ? '#4ade80'
+                    : detectFeedback.type === 'warning'
+                    ? '#facc15'
+                    : detectFeedback.type === 'error'
+                    ? '#f87171'
+                    : '#38bdf8',
+                border: `1px solid ${
+                  detectFeedback.type === 'success'
+                    ? 'rgba(34, 197, 94, 0.3)'
+                    : detectFeedback.type === 'warning'
+                    ? 'rgba(234, 179, 8, 0.3)'
+                    : detectFeedback.type === 'error'
+                    ? 'rgba(239, 68, 68, 0.3)'
+                    : 'rgba(56, 189, 248, 0.3)'
+                }`
+              }}
+            >
+              {detectFeedback.type === 'success' && <CheckCircle size={16} />}
+              {detectFeedback.type === 'warning' && <AlertCircle size={16} />}
+              {detectFeedback.type === 'error' && <AlertCircle size={16} />}
+              {detectFeedback.type === 'info' && <RefreshCw size={16} className="spin" />}
+              <span>{detectFeedback.message}</span>
+            </div>
+          )}
 
           {error && (
             <div style={{ background: 'rgba(239, 68, 68, 0.15)', padding: '0.65rem', borderRadius: '8px', color: '#f87171', fontSize: '0.8rem', marginBottom: '1rem' }}>

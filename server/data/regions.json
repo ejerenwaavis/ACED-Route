@@ -74,6 +74,31 @@
       },
       "combinedSizeMB": 86.7,
       "updatedAt": "2026-09-13T12:00:00Z"
+    },
+    {
+      "id": "us-ga-metro",
+      "name": "Georgia & Atlanta Metro",
+      "description": "Atlanta, Fulton, Gwinnett, Cobb, DeKalb, and Georgia corridor",
+      "bounds": {
+        "minLat": 30.3556,
+        "maxLat": 35.0007,
+        "minLng": -85.6052,
+        "maxLng": -80.7514
+      },
+      "routing": {
+        "bundleUrl": "https://route.aceddivision.com/regions/us-ga-metro/valhalla-tiles.zip",
+        "sizeMB": 28.5,
+        "checksum": "sha256:d8a21f4561029481ad8f8123ab",
+        "version": "2026.09.1"
+      },
+      "basemap": {
+        "pmtilesUrl": "https://route.aceddivision.com/regions/us-ga-metro/basemap.pmtiles",
+        "sizeMB": 36.2,
+        "checksum": "sha256:9c1a3b88432095aa10385cb1",
+        "version": "2026.09.1"
+      },
+      "combinedSizeMB": 64.7,
+      "updatedAt": "2026-09-13T12:00:00Z"
     }
   ]
 }
