@@ -5,16 +5,18 @@ import {
   Navigation,
   Crosshair,
   Maximize2,
+  Minimize2,
   X,
   Key,
   Tag,
   CheckCircle2,
   Compass,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Layers
 } from 'lucide-react';
 import { registerPMTilesProtocol, resolvePmtilesUrl } from '../utils/pmtilesProtocol';
-import { buildOfflineDarkStyle } from '../utils/mapStyle';
+import { buildMapStyle } from '../utils/mapStyle';
 import { routingService } from '../services/routing';
 
 export default function MapView({
@@ -35,22 +37,27 @@ export default function MapView({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedStop, setSelectedStop] = useState(null);
   const [selectedStopIndex, setSelectedStopIndex] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [nativePmtilesPath, setNativePmtilesPath] = useState(null);
+  const [offlineMode, setOfflineMode] = useState(false);
 
   const activeRegion = regionId || routingService.getActiveRegion() || 'sample-metro';
 
-  // Helper to extract valid [lng, lat] from a stop
+  // Helper to extract valid [lng, lat] from any stop shape
   const getStopCoords = (stop) => {
     if (!stop) return null;
-    const coords = stop.address?.location?.coordinates || stop.coordinates;
-    if (coords && coords.length >= 2) {
-      // Mongo GeoJSON convention is [lng, lat]
-      return [coords[0], coords[1]];
+    const raw = stop.address?.location?.coordinates || stop.coordinates || stop.location?.coordinates;
+    if (Array.isArray(raw) && raw.length >= 2) {
+      const lng = parseFloat(raw[0]);
+      const lat = parseFloat(raw[1]);
+      if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) {
+        return [lng, lat];
+      }
     }
     return null;
   };
 
-  // 1. Fetch native PMTiles path on mount
+  // 1. Check local offline storage
   useEffect(() => {
     let isMounted = true;
     routingService.checkRegion(activeRegion).then((res) => {
@@ -67,14 +74,13 @@ export default function MapView({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Register the pmtiles:// protocol with MapLibre
     registerPMTilesProtocol();
 
     const pmtilesUrl = resolvePmtilesUrl(activeRegion, nativePmtilesPath);
-    const styleObj = buildOfflineDarkStyle(pmtilesUrl);
+    const styleObj = buildMapStyle({ pmtilesUrl, isOffline: offlineMode });
 
-    // Initial center point
-    let initialCenter = [-84.388, 33.749]; // Atlanta default
+    // Center map around first valid stop or Atlanta metro
+    let initialCenter = [-84.388, 33.749];
     const firstCoords = stops.map(getStopCoords).find(Boolean);
     if (firstCoords) {
       initialCenter = firstCoords;
@@ -90,68 +96,96 @@ export default function MapView({
 
     map.addControl(new NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
 
-    map.on('load', () => {
-      // 1. Sequence Route (Dashed Muted Blue)
-      map.addSource('sequence-route-source', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: []
+    const setupLayers = () => {
+      // Sequence Route Source & Layers (Dashed Muted Electric Blue)
+      if (!map.getSource('sequence-route-source')) {
+        map.addSource('sequence-route-source', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: []
+            }
           }
-        }
-      });
+        });
 
-      map.addLayer({
-        id: 'sequence-route',
-        type: 'line',
-        source: 'sequence-route-source',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round'
-        },
-        paint: {
-          'line-color': '#38bdf8',
-          'line-width': 4,
-          'line-dasharray': [2, 2],
-          'line-opacity': 0.7
-        }
-      });
-
-      // 2. Active Route Leg (Solid Neon Green)
-      map.addSource('active-route-source', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: []
+        // Sequence Glow Casing
+        map.addLayer({
+          id: 'sequence-route-casing',
+          type: 'line',
+          source: 'sequence-route-source',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#0284c7',
+            'line-width': 7,
+            'line-opacity': 0.35
           }
-        }
-      });
+        });
 
-      map.addLayer({
-        id: 'active-route',
-        type: 'line',
-        source: 'active-route-source',
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round'
-        },
-        paint: {
-          'line-color': '#22c55e',
-          'line-width': 6,
-          'line-opacity': 0.95
-        }
-      });
+        // Sequence Core Line
+        map.addLayer({
+          id: 'sequence-route',
+          type: 'line',
+          source: 'sequence-route-source',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#38bdf8',
+            'line-width': 4,
+            'line-dasharray': [3, 2],
+            'line-opacity': 0.85
+          }
+        });
+      }
+
+      // Active Target Route Leg (Solid Neon Green with glowing casing)
+      if (!map.getSource('active-route-source')) {
+        map.addSource('active-route-source', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: []
+            }
+          }
+        });
+
+        // Active Glow Casing
+        map.addLayer({
+          id: 'active-route-casing',
+          type: 'line',
+          source: 'active-route-source',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#22c55e',
+            'line-width': 10,
+            'line-opacity': 0.4
+          }
+        });
+
+        // Active Core Line
+        map.addLayer({
+          id: 'active-route',
+          type: 'line',
+          source: 'active-route-source',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#4ade80',
+            'line-width': 5.5,
+            'line-opacity': 1.0
+          }
+        });
+      }
 
       mapRef.current = map;
       setMapLoaded(true);
-    });
+    };
+
+    map.on('load', setupLayers);
+    map.on('style.load', setupLayers);
 
     return () => {
-      // Cleanup markers & map instance
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       if (driverMarkerRef.current) {
@@ -160,15 +194,24 @@ export default function MapView({
       }
       map.remove();
       mapRef.current = null;
+      setMapLoaded(false);
     };
-  }, [activeRegion, nativePmtilesPath]);
+  }, [activeRegion, nativePmtilesPath, offlineMode]);
 
-  // 3. Update Stop Markers
+  // Handle Fullscreen resize
+  useEffect(() => {
+    if (mapRef.current) {
+      setTimeout(() => {
+        mapRef.current.resize();
+      }, 100);
+    }
+  }, [isFullscreen]);
+
+  // 3. Update Stop HTML Markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
-    // Clear existing markers
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
@@ -180,7 +223,6 @@ export default function MapView({
       const isDelivered = stop.status === 'delivered';
       const isSelected = idx === selectedStopIndex;
 
-      // Custom HTML Marker element
       const el = document.createElement('div');
       el.className = `stop-marker-pin ${isCurrentActive ? 'stop-marker-active' : ''} ${
         isDelivered ? 'stop-marker-delivered' : ''
@@ -209,17 +251,16 @@ export default function MapView({
     if (!map || !mapLoaded) return;
 
     if (driverLocation && driverLocation.length >= 2) {
-      // Convention: GeoJSON lng, lat
       const lngLat = [driverLocation[0], driverLocation[1]];
 
       if (!driverMarkerRef.current) {
         const el = document.createElement('div');
-        el.style.width = '20px';
-        el.style.height = '20px';
+        el.style.width = '22px';
+        el.style.height = '22px';
         el.style.borderRadius = '50%';
         el.style.background = '#38bdf8';
         el.style.border = '3px solid #ffffff';
-        el.style.boxShadow = '0 0 10px rgba(56, 189, 248, 0.8)';
+        el.style.boxShadow = '0 0 12px rgba(56, 189, 248, 0.9)';
 
         driverMarkerRef.current = new Marker({ element: el })
           .setLngLat(lngLat)
@@ -238,10 +279,10 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
-    // A. Update Sequence Line (all pending/ordered stops)
+    // A. Update Sequence Line (connects all ordered stops)
     const validCoords = stops.map(getStopCoords).filter(Boolean);
     const seqSource = map.getSource('sequence-route-source');
-    if (seqSource) {
+    if (seqSource && validCoords.length > 1) {
       seqSource.setData({
         type: 'Feature',
         geometry: {
@@ -257,10 +298,8 @@ export default function MapView({
       let activeLineCoords = [];
 
       if (activeRouteCoordinates && activeRouteCoordinates.length > 1) {
-        // Valhalla routing calculation provided
         activeLineCoords = activeRouteCoordinates;
       } else {
-        // Fallback: Line from current position / previous stop to active stop
         const targetStop = stops[activeIndex];
         const targetCoords = getStopCoords(targetStop);
 
@@ -270,6 +309,8 @@ export default function MapView({
             originCoords = [driverLocation[0], driverLocation[1]];
           } else if (activeIndex > 0) {
             originCoords = getStopCoords(stops[activeIndex - 1]);
+          } else if (stops.length > 1) {
+            originCoords = getStopCoords(stops[0]);
           }
 
           if (originCoords) {
@@ -278,13 +319,15 @@ export default function MapView({
         }
       }
 
-      activeSource.setData({
-        type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: activeLineCoords
-        }
-      });
+      if (activeLineCoords.length > 1) {
+        activeSource.setData({
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: activeLineCoords
+          }
+        });
+      }
     }
   }, [stops, activeIndex, activeRouteCoordinates, driverLocation, mapLoaded]);
 
@@ -301,13 +344,13 @@ export default function MapView({
     if (driverLocation) bounds.extend(driverLocation);
 
     map.fitBounds(bounds, {
-      padding: { top: 40, bottom: 60, left: 40, right: 40 },
+      padding: { top: 50, bottom: 80, left: 50, right: 50 },
       maxZoom: 16,
       duration: 800
     });
   }, [stops, driverLocation]);
 
-  // Frame stops on initial load
+  // Initial fit
   useEffect(() => {
     if (mapLoaded && stops.length > 0) {
       fitMapToBounds();
@@ -326,38 +369,63 @@ export default function MapView({
   };
 
   return (
-    <div className="card" style={{ padding: '0.75rem', position: 'relative', marginBottom: '1rem' }}>
-      {/* Header bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.85rem' }}>
-          <Navigation size={15} color="#38bdf8" />
-          <span>Interactive Route Map ({stops.length} Stops)</span>
+    <div
+      className={`card ${isFullscreen ? 'maplibre-fullscreen-parent' : ''}`}
+      style={{
+        padding: isFullscreen ? 0 : '0.75rem',
+        position: 'relative',
+        marginBottom: '1rem',
+        zIndex: isFullscreen ? 9999 : undefined
+      }}
+    >
+      {/* Header bar (hidden in full screen) */}
+      {!isFullscreen && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.85rem' }}>
+            <Navigation size={15} color="#38bdf8" />
+            <span>Interactive Route Map ({stops.length} Stops)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              onClick={() => setIsFullscreen(true)}
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+            >
+              <Maximize2 size={13} />
+              <span>Full View</span>
+            </button>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              Target: #{activeIndex + 1}
+            </span>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-            Active: #{activeIndex + 1}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* MapLibre Canvas Container */}
-      <div className="maplibre-wrapper">
+      <div className={`maplibre-wrapper ${isFullscreen ? 'maplibre-fullscreen' : ''}`}>
         <div ref={mapContainerRef} className="maplibre-canvas-container" />
 
         {/* Legend pill */}
         <div className="map-legend-pill">
-          <ShieldCheck size={12} />
-          <span>100% Offline Basemap</span>
+          <ShieldCheck size={13} />
+          <span>HD Dark Basemap</span>
         </div>
 
         {/* Custom Map Controls */}
         <div className="maplibre-controls-overlay">
           <button
             className="map-control-btn"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Full Screen View'}
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button
+            className="map-control-btn"
             onClick={fitMapToBounds}
             title="Fit All Stops in View"
           >
-            <Maximize2 size={16} />
+            <Compass size={16} />
           </button>
           <button
             className="map-control-btn"
@@ -368,10 +436,10 @@ export default function MapView({
           </button>
         </div>
 
-        {/* Interactive Bottom Sheet for Selected Stop */}
+        {/* Floating Bottom Sheet for Selected Stop */}
         {selectedStop && (
           <div className="map-bottom-sheet">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
               <div>
                 <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>
                   Stop #{selectedStopIndex + 1} of {stops.length}
@@ -388,14 +456,14 @@ export default function MapView({
                   setSelectedStop(null);
                   setSelectedStopIndex(null);
                 }}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.2rem' }}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.25rem' }}
               >
                 <X size={18} />
               </button>
             </div>
 
             {/* Extra stop meta */}
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.65rem' }}>
               {selectedStop.trackingNumber && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   <Tag size={12} />

@@ -1,9 +1,19 @@
+import { Capacitor } from '@capacitor/core';
+
 // ACED Route API Service
 // Default production endpoint per requirement: route.aceddivision.com
 const DEFAULT_API_BASE = 'https://route.aceddivision.com';
 
 export const getApiBase = () => {
-  return localStorage.getItem('aced_api_base') || (
+  const saved = localStorage.getItem('aced_api_base');
+  if (saved) return saved;
+
+  // On native mobile devices (Capacitor), default strictly to production server
+  if (Capacitor.isNativePlatform()) {
+    return DEFAULT_API_BASE;
+  }
+
+  return (
     window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? 'http://localhost:3000'
       : (window.location.pathname.startsWith('/acedroute')

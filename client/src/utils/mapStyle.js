@@ -1,10 +1,50 @@
 /**
- * Self-hosted, 100% offline MapLibre GL vector style generator.
- * Styled specifically for ACED Route's dark theme palette with zero external tile dependencies.
- * Reads directly from the region's PMTiles vector archive.
+ * Self-hosted MapLibre GL vector & raster dark theme style generator.
+ * Provides CARTO Dark Matter HD Retina tiles when online, and offline PMTiles vector layers when offline.
  *
- * @param {string} pmtilesUrl - Resolved URL to the .pmtiles archive (converted file src or local route)
+ * @param {object} options
+ * @param {string|null} options.pmtilesUrl - Resolved URL to the local or remote .pmtiles archive
+ * @param {boolean} options.isOffline - Whether Airplane Mode / offline mode is active
  * @returns {object} Valid MapLibre Style Specification v8 object
+ */
+export function buildMapStyle({ pmtilesUrl = null, isOffline = false } = {}) {
+  // If offline mode is enabled and PMTiles URL is available, use local vector tiles
+  if (isOffline && pmtilesUrl) {
+    return buildOfflineDarkStyle(pmtilesUrl);
+  }
+
+  // Premium High-Definition Dark Basemap (CARTO Dark Matter Retina @2x)
+  // 100% free, no API key, crisp street names, avenue labels, highway links, water, and building blocks
+  return {
+    version: 8,
+    name: 'ACED Route HD Dark',
+    sources: {
+      'carto-dark': {
+        type: 'raster',
+        tiles: [
+          'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+          'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+          'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+          'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png'
+        ],
+        tileSize: 256,
+        attribution: '© OpenStreetMap contributors, © CARTO'
+      }
+    },
+    layers: [
+      {
+        id: 'carto-dark-layer',
+        type: 'raster',
+        source: 'carto-dark',
+        minzoom: 0,
+        maxzoom: 20
+      }
+    ]
+  };
+}
+
+/**
+ * Offline vector style reading directly from the region's PMTiles vector archive.
  */
 export function buildOfflineDarkStyle(pmtilesUrl) {
   return {
@@ -18,7 +58,6 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
       }
     },
     layers: [
-      // 1. Canvas Background
       {
         id: 'background',
         type: 'background',
@@ -26,7 +65,6 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
           'background-color': '#0f172a'
         }
       },
-      // 2. Earth / Landcover
       {
         id: 'earth',
         type: 'fill',
@@ -36,29 +74,6 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
           'fill-color': '#131d31'
         }
       },
-      // 3. Landuse / Parks / Commercial
-      {
-        id: 'landuse',
-        type: 'fill',
-        source: 'protomaps',
-        'source-layer': 'landuse',
-        paint: {
-          'fill-color': '#162238',
-          'fill-opacity': 0.7
-        }
-      },
-      // 4. Natural / Parks / Greenery
-      {
-        id: 'natural',
-        type: 'fill',
-        source: 'protomaps',
-        'source-layer': 'natural',
-        paint: {
-          'fill-color': '#142a27',
-          'fill-opacity': 0.6
-        }
-      },
-      // 5. Water bodies & rivers
       {
         id: 'water',
         type: 'fill',
@@ -68,7 +83,6 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
           'fill-color': '#0c4a6e'
         }
       },
-      // 6. Buildings footprint
       {
         id: 'buildings',
         type: 'fill',
@@ -80,7 +94,6 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
           'fill-outline-color': '#334155'
         }
       },
-      // 7. Roads — Minor / Residential
       {
         id: 'roads_minor',
         type: 'line',
@@ -88,11 +101,10 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
         'source-layer': 'roads',
         filter: ['any', ['==', 'kind', 'minor'], ['==', 'kind', 'service']],
         paint: {
-          'line-color': '#1e293b',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 16, 4]
+          'line-color': '#283548',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.5, 16, 4]
         }
       },
-      // 8. Roads — Medium / Primary / Secondary
       {
         id: 'roads_medium',
         type: 'line',
@@ -100,11 +112,10 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
         'source-layer': 'roads',
         filter: ['any', ['==', 'kind', 'medium'], ['==', 'kind', 'major']],
         paint: {
-          'line-color': '#334155',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 16, 6]
+          'line-color': '#3b4d66',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 16, 6]
         }
       },
-      // 9. Roads — Highway / Motorway
       {
         id: 'roads_highway',
         type: 'line',
@@ -113,20 +124,7 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
         filter: ['==', 'kind', 'highway'],
         paint: {
           'line-color': '#475569',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.5, 16, 8]
-        }
-      },
-      // 10. Boundaries / State / County lines
-      {
-        id: 'boundaries',
-        type: 'line',
-        source: 'protomaps',
-        'source-layer': 'boundaries',
-        paint: {
-          'line-color': '#64748b',
-          'line-dasharray': [2, 2],
-          'line-width': 1,
-          'line-opacity': 0.6
+          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2, 16, 8]
         }
       }
     ]
