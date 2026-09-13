@@ -2,10 +2,13 @@ import Foundation
 
 /**
  * ValhallaEngine for iOS.
- * Handles offline routing calculations, tile directory management, and bundle extraction.
+ * Handles offline routing calculations, tile directory management, and dual bundle extraction.
  *
  * TILE DIRECTORY CONVENTION:
  * Application Support / valhalla-tiles / {regionName} /
+ *
+ * BASEMAP PMTILES CONVENTION:
+ * Application Support / valhalla-tiles / {regionName} / basemap.pmtiles
  *
  * COORDINATE CONVENTION:
  * - Routing inputs (start, end, waypoints): [latitude, longitude]
@@ -34,14 +37,27 @@ public class ValhallaEngine {
         return appSupport.appendingPathComponent("valhalla-tiles/\(region)")
     }
 
-    public func isRegionAvailable(region: String) -> Bool {
+    public func getPmtilesFile(region: String) -> URL {
+        return getTilesDir(region: region).appendingPathComponent("basemap.pmtiles")
+    }
+
+    public func hasRoutingTiles(region: String) -> Bool {
         let dir = getTilesDir(region: region)
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue {
             let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-            return !files.isEmpty
+            return files.contains { !$0.hasSuffix(".pmtiles") }
         }
         return false
+    }
+
+    public func hasBasemapPmtiles(region: String) -> Bool {
+        let file = getPmtilesFile(region: region)
+        return FileManager.default.fileExists(atPath: file.path)
+    }
+
+    public func isRegionAvailable(region: String) -> Bool {
+        return hasRoutingTiles(region: region) || hasBasemapPmtiles(region: region)
     }
 
     public func getRegionSizeMB(region: String) -> Double {
@@ -71,30 +87,42 @@ public class ValhallaEngine {
         }
     }
 
-    public func downloadAndExtractBundle(bundleUrl: String, regionName: String) async throws -> Bool {
-        guard let url = URL(string: bundleUrl) else {
-            throw NSError(domain: "ValhallaEngine", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid bundle URL"])
-        }
-
+    public func downloadAndExtractRegion(bundleUrl: String?, pmtilesUrl: String?, regionName: String) async throws -> Bool {
         let targetDir = getTilesDir(region: regionName)
         try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
-        let (tempFile, response) = try await URLSession.shared.download(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw NSError(domain: "ValhallaEngine", code: 500, userInfo: [NSLocalizedDescriptionKey: "Download failed"])
+        // 1. Download Valhalla routing bundle if provided
+        if let bundleStr = bundleUrl, !bundleStr.isEmpty, let url = URL(string: bundleStr) {
+            let (tempFile, response) = try await URLSession.shared.download(from: url)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw NSError(domain: "ValhallaEngine", code: 500, userInfo: [NSLocalizedDescriptionKey: "Routing download failed"])
+            }
+            try? FileManager.default.removeItem(at: tempFile)
         }
 
-        // Move downloaded archive and store region metadata
+        // 2. Download PMTiles visual basemap if provided
+        if let pmtilesStr = pmtilesUrl, !pmtilesStr.isEmpty, let url = URL(string: pmtilesStr) {
+            let pmtilesTarget = getPmtilesFile(region: regionName)
+            let (tempFile, response) = try await URLSession.shared.download(from: url)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw NSError(domain: "ValhallaEngine", code: 500, userInfo: [NSLocalizedDescriptionKey: "PMTiles download failed"])
+            }
+            if FileManager.default.fileExists(atPath: pmtilesTarget.path) {
+                try? FileManager.default.removeItem(at: pmtilesTarget)
+            }
+            try FileManager.default.moveItem(at: tempFile, to: pmtilesTarget)
+        }
+
+        // Store region metadata
         let metadata: [String: Any] = [
             "region": regionName,
             "installedAt": Date().timeIntervalSince1970,
-            "sourceUrl": bundleUrl
+            "bundleUrl": bundleUrl ?? "",
+            "pmtilesUrl": pmtilesUrl ?? ""
         ]
         let metaData = try JSONSerialization.data(withJSONObject: metadata, options: .prettyPrinted)
         try metaData.write(to: targetDir.appendingPathComponent("region.json"))
 
-        // Cleanup temp file
-        try? FileManager.default.removeItem(at: tempFile)
         return true
     }
 

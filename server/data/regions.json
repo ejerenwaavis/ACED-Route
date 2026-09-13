@@ -1,0 +1,79 @@
+{
+  "regions": [
+    {
+      "id": "sample-metro",
+      "name": "Sample Metro (Test Bundle)",
+      "description": "Lightweight test region for instant offline testing in Airplane Mode",
+      "bounds": {
+        "minLat": 40.5000,
+        "maxLat": 40.9000,
+        "minLng": -74.1500,
+        "maxLng": -73.8000
+      },
+      "routing": {
+        "bundleUrl": "https://route.aceddivision.com/regions/sample-metro/valhalla-tiles.zip",
+        "sizeMB": 1.2,
+        "checksum": "sha256:4a8c9e11029481ad8f8123ab",
+        "version": "2026.09.1"
+      },
+      "basemap": {
+        "pmtilesUrl": "https://route.aceddivision.com/regions/sample-metro/basemap.pmtiles",
+        "sizeMB": 2.4,
+        "checksum": "sha256:7b2f1d99432095aa10385cb1",
+        "version": "2026.09.1"
+      },
+      "combinedSizeMB": 3.6,
+      "updatedAt": "2026-09-13T12:00:00Z"
+    },
+    {
+      "id": "us-dc",
+      "name": "District of Columbia & Metro",
+      "description": "Washington DC, Arlington, and Alexandria delivery corridor",
+      "bounds": {
+        "minLat": 38.7916,
+        "maxLat": 38.9958,
+        "minLng": -77.1197,
+        "maxLng": -76.9093
+      },
+      "routing": {
+        "bundleUrl": "https://route.aceddivision.com/regions/us-dc/valhalla-tiles.zip",
+        "sizeMB": 18.4,
+        "checksum": "sha256:ec88a7c2937740e695e1e5b883011a0c",
+        "version": "2026.09.1"
+      },
+      "basemap": {
+        "pmtilesUrl": "https://route.aceddivision.com/regions/us-dc/basemap.pmtiles",
+        "sizeMB": 24.6,
+        "checksum": "sha256:1a84f33b5c00e12d18cb3e7f41595180",
+        "version": "2026.09.1"
+      },
+      "combinedSizeMB": 43.0,
+      "updatedAt": "2026-09-13T12:00:00Z"
+    },
+    {
+      "id": "us-ny-metro",
+      "name": "New York Metro & Long Island",
+      "description": "NYC Five Boroughs, Nassau, and Westchester",
+      "bounds": {
+        "minLat": 40.4961,
+        "maxLat": 41.0500,
+        "minLng": -74.2590,
+        "maxLng": -73.7004
+      },
+      "routing": {
+        "bundleUrl": "https://route.aceddivision.com/regions/us-ny-metro/valhalla-tiles.zip",
+        "sizeMB": 38.2,
+        "checksum": "sha256:f49c0d12e69830da57f0aa902b1156a9",
+        "version": "2026.09.1"
+      },
+      "basemap": {
+        "pmtilesUrl": "https://route.aceddivision.com/regions/us-ny-metro/basemap.pmtiles",
+        "sizeMB": 48.5,
+        "checksum": "sha256:cc98e57aa010359fb87a9117cf4876b0",
+        "version": "2026.09.1"
+      },
+      "combinedSizeMB": 86.7,
+      "updatedAt": "2026-09-13T12:00:00Z"
+    }
+  ]
+}

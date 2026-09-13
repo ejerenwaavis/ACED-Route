@@ -96,5 +96,15 @@ export const api = {
     request('/api/brand', {
       method: 'POST',
       body: JSON.stringify({ brandName, trackingPrefix })
+    }),
+
+  // Offline Regions Catalog & Detection
+  getRegions: () => request('/api/regions'),
+  getRegion: (id) => request(`/api/regions/${id}`),
+  detectRegion: (data) =>
+    request('/api/regions/detect', {
+      method: 'POST',
+      body: JSON.stringify(data)
     })
 };
+

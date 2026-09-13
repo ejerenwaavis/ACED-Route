@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { UploadCloud, ListOrdered, Navigation, Clock, ShieldCheck } from 'lucide-react';
 import Header from './components/Header';
 import LoginScreen from './components/LoginModal';
+import RegionDownloadPrompt from './components/RegionDownloadPrompt';
 import UploadPage from './pages/UploadPage';
 import SequencerPage from './pages/SequencerPage';
 import NavigationPage from './pages/NavigationPage';
 import HistoryPage from './pages/HistoryPage';
-import { getUser, getToken, setToken } from './services/api';
+import { getUser, getToken, setToken, api } from './services/api';
+import { routingService } from './services/routing';
 
 export default function App() {
   const [user, setUser] = useState(getUser());
@@ -14,6 +16,7 @@ export default function App() {
 
   const [activeManifest, setActiveManifest] = useState(null);
   const [sequencedStops, setSequencedStops] = useState([]);
+  const [pendingRegion, setPendingRegion] = useState(null);
 
   // Check for Capacitor deep link or Web query param token
   useEffect(() => {
@@ -58,10 +61,28 @@ export default function App() {
     );
   }
 
+  const checkAndPromptRegion = async (manifest) => {
+    if (!manifest || !manifest.stops || !manifest.stops.length) return;
+    try {
+      const res = await api.detectRegion({ stops: manifest.stops });
+      if (res.region) {
+        const check = await routingService.checkRegion(res.region.id);
+        if (!check.available) {
+          setPendingRegion(res.region);
+        } else {
+          routingService.setActiveRegion(res.region.id);
+        }
+      }
+    } catch (e) {
+      console.warn('Region check error:', e);
+    }
+  };
+
   const handleManifestUploaded = (manifest) => {
     setActiveManifest(manifest);
     setSequencedStops(manifest.stops || []);
     setActiveTab('sequencer');
+    checkAndPromptRegion(manifest);
   };
 
   const handleStartRoute = (stops) => {
@@ -77,6 +98,7 @@ export default function App() {
     } else {
       setActiveTab('sequencer');
     }
+    checkAndPromptRegion(manifest);
   };
 
   return (
@@ -160,6 +182,17 @@ export default function App() {
           <HistoryPage onResumeRoute={handleResumeRoute} />
         )}
       </main>
+
+      {pendingRegion && (
+        <RegionDownloadPrompt
+          region={pendingRegion}
+          onDownloaded={(r) => {
+            setPendingRegion(null);
+            routingService.setActiveRegion(r.id);
+          }}
+          onDismiss={() => setPendingRegion(null)}
+        />
+      )}
     </div>
   );
 }

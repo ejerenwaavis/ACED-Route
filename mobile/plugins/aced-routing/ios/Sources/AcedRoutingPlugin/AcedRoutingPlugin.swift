@@ -3,7 +3,7 @@ import Capacitor
 
 /**
  * AcedRoutingPlugin for iOS.
- * Bridges native offline routing calculations to the Capacitor webview.
+ * Bridges native offline routing calculations and PMTiles basemap management to the Capacitor webview.
  *
  * Input coordinates: [latitude, longitude]
  * Output coordinates: [longitude, latitude] (GeoJSON / MapLibre GL standard)
@@ -29,24 +29,40 @@ public class AcedRoutingPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let available = engine.isRegionAvailable(region: region)
         let sizeMB = engine.getRegionSizeMB(region: region)
+        let hasRouting = engine.hasRoutingTiles(region: region)
+        let hasBasemap = engine.hasBasemapPmtiles(region: region)
+        let pmtilesUrl = engine.getPmtilesFile(region: region)
 
         call.resolve([
             "available": available,
-            "sizeMB": sizeMB
+            "sizeMB": sizeMB,
+            "hasRoutingTiles": hasRouting,
+            "hasBasemapPmtiles": hasBasemap,
+            "pmtilesPath": hasBasemap ? pmtilesUrl.path : nil
         ])
     }
 
     @objc public func downloadRegionData(_ call: CAPPluginCall) {
-        guard let bundleUrl = call.getString("bundleUrl"),
-              let regionName = call.getString("regionName") else {
-            call.reject("Must provide both bundleUrl and regionName")
+        guard let regionName = call.getString("regionName"), !regionName.isEmpty else {
+            call.reject("Must provide regionName")
             return
         }
 
+        let bundleUrl = call.getString("bundleUrl")
+        let pmtilesUrl = call.getString("pmtilesUrl")
+
         Task {
             do {
-                let success = try await engine.downloadAndExtractBundle(bundleUrl: bundleUrl, regionName: regionName)
-                call.resolve(["success": success])
+                let success = try await engine.downloadAndExtractRegion(
+                    bundleUrl: bundleUrl,
+                    pmtilesUrl: pmtilesUrl,
+                    regionName: regionName
+                )
+                let pmtilesPath = self.engine.getPmtilesFile(region: regionName).path
+                call.resolve([
+                    "success": success,
+                    "pmtilesPath": pmtilesPath
+                ])
             } catch {
                 call.reject("Failed to download region data: \(error.localizedDescription)")
             }

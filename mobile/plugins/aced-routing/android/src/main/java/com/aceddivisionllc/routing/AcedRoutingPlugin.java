@@ -12,13 +12,14 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * AcedRoutingPlugin exposes native Valhalla offline routing to the Capacitor webview.
+ * AcedRoutingPlugin exposes native Valhalla offline routing and PMTiles basemap
+ * management to the Capacitor webview.
  *
- * All offline routing calculations operate 100% locally with zero online API dependencies.
  * Input coordinates: [latitude, longitude]
  * Output coordinates: [longitude, latitude] (GeoJSON / MapLibre GL convention)
  */
@@ -46,10 +47,16 @@ public class AcedRoutingPlugin extends Plugin {
         try {
             boolean available = valhallaEngine.isRegionAvailable(region);
             double sizeMB = valhallaEngine.getRegionSizeMB(region);
+            boolean hasRouting = valhallaEngine.hasRoutingTiles(region);
+            boolean hasBasemap = valhallaEngine.hasBasemapPmtiles(region);
+            File pmtilesFile = valhallaEngine.getPmtilesFile(region);
 
             JSObject ret = new JSObject();
             ret.put("available", available);
             ret.put("sizeMB", sizeMB);
+            ret.put("hasRoutingTiles", hasRouting);
+            ret.put("hasBasemapPmtiles", hasBasemap);
+            ret.put("pmtilesPath", pmtilesFile.exists() ? pmtilesFile.getAbsolutePath() : null);
             call.resolve(ret);
         } catch (Exception e) {
             Log.e(TAG, "checkRegionAvailable error", e);
@@ -60,23 +67,31 @@ public class AcedRoutingPlugin extends Plugin {
     @PluginMethod
     public void downloadRegionData(PluginCall call) {
         String bundleUrl = call.getString("bundleUrl");
+        String pmtilesUrl = call.getString("pmtilesUrl");
         String regionName = call.getString("regionName");
 
-        if (bundleUrl == null || regionName == null) {
-            call.reject("Must provide both bundleUrl and regionName");
+        if (regionName == null || regionName.isEmpty()) {
+            call.reject("Must provide regionName");
             return;
         }
 
-        // Execute download and extraction asynchronously in background thread
+        if ((bundleUrl == null || bundleUrl.isEmpty()) && (pmtilesUrl == null || pmtilesUrl.isEmpty())) {
+            call.reject("Must provide at least bundleUrl or pmtilesUrl");
+            return;
+        }
+
         bridge.execute(() -> {
             try {
-                boolean success = valhallaEngine.downloadAndExtractBundle(bundleUrl, regionName);
+                boolean success = valhallaEngine.downloadAndExtractRegion(bundleUrl, pmtilesUrl, regionName);
+                File pmtilesFile = valhallaEngine.getPmtilesFile(regionName);
+
                 JSObject ret = new JSObject();
                 ret.put("success", success);
+                ret.put("pmtilesPath", pmtilesFile.exists() ? pmtilesFile.getAbsolutePath() : null);
                 call.resolve(ret);
             } catch (Exception e) {
                 Log.e(TAG, "downloadRegionData error", e);
-                call.reject("Failed to download and extract region bundle: " + e.getMessage());
+                call.reject("Failed to download and extract region data: " + e.getMessage());
             }
         });
     }

@@ -8,6 +8,7 @@ const passport = require('./config/passport');
 const authRoutes = require('./routes/auth');
 const brandRoutes = require('./routes/brand');
 const manifestRoutes = require('./routes/manifest');
+const regionsRoutes = require('./routes/regions');
 
 const app = express();
 
@@ -16,9 +17,11 @@ app.use(cors());
 app.use(express.json());
 app.use(passport.initialize());
 
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/brand', brandRoutes);
 app.use('/api/manifest', manifestRoutes);
+app.use('/api/regions', regionsRoutes);
 app.get('/api/health', (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
 // Support sub-path mounting (e.g. /acedroute on shared cPanel domain)
@@ -26,7 +29,13 @@ const baseUri = process.env.BASE_URI || '/acedroute';
 app.use(`${baseUri}/api/auth`, authRoutes);
 app.use(`${baseUri}/api/brand`, brandRoutes);
 app.use(`${baseUri}/api/manifest`, manifestRoutes);
+app.use(`${baseUri}/api/regions`, regionsRoutes);
 app.get(`${baseUri}/api/health`, (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
+
+// Serve offline map region bundles (.zip, .pmtiles)
+const regionsStaticPath = path.join(__dirname, 'public/regions');
+app.use('/regions', express.static(regionsStaticPath));
+app.use(`${baseUri}/regions`, express.static(regionsStaticPath));
 
 // Serve frontend static build from public_html if present
 const publicHtmlPath = path.join(__dirname, '../public_html');

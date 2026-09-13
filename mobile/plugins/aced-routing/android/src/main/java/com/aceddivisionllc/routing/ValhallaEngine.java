@@ -25,6 +25,9 @@ import java.util.zip.ZipInputStream;
  * TILE DIRECTORY CONVENTION:
  * context.getFilesDir() + "/valhalla-tiles/" + regionName + "/"
  *
+ * BASEMAP PMTILES CONVENTION:
+ * context.getFilesDir() + "/valhalla-tiles/" + regionName + "/basemap.pmtiles"
+ *
  * COORDINATE CONVENTION:
  * - Routing inputs (start, end, waypoints): [latitude, longitude]
  * - Routing outputs (coordinates): [longitude, latitude] (GeoJSON / MapLibre GL standard)
@@ -43,7 +46,6 @@ public class ValhallaEngine {
         }
     }
 
-    // Native JNI bridge declarations for when libvalhalla.so is compiled
     public native String nativeValhallaRoute(String configJson, String requestJson);
     public native String nativeValhallaInit(String configJson);
 
@@ -53,21 +55,33 @@ public class ValhallaEngine {
         this.context = context.getApplicationContext();
     }
 
-    /**
-     * Directory path convention: context.filesDir/valhalla-tiles/{region}/
-     */
     public File getTilesDir(String regionName) {
         File base = new File(context.getFilesDir(), "valhalla-tiles");
         return new File(base, regionName);
     }
 
-    public boolean isRegionAvailable(String regionName) {
+    public File getPmtilesFile(String regionName) {
+        return new File(getTilesDir(regionName), "basemap.pmtiles");
+    }
+
+    public boolean hasRoutingTiles(String regionName) {
         File regionDir = getTilesDir(regionName);
-        if (!regionDir.exists() || !regionDir.isDirectory()) {
-            return false;
-        }
+        if (!regionDir.exists() || !regionDir.isDirectory()) return false;
         File[] files = regionDir.listFiles();
-        return files != null && files.length > 0;
+        if (files == null) return false;
+        for (File f : files) {
+            if (!f.getName().endsWith(".pmtiles")) return true;
+        }
+        return false;
+    }
+
+    public boolean hasBasemapPmtiles(String regionName) {
+        File pmtiles = getPmtilesFile(regionName);
+        return pmtiles.exists() && pmtiles.length() > 0;
+    }
+
+    public boolean isRegionAvailable(String regionName) {
+        return hasRoutingTiles(regionName) || hasBasemapPmtiles(regionName);
     }
 
     public double getRegionSizeMB(String regionName) {
@@ -111,86 +125,93 @@ public class ValhallaEngine {
     }
 
     /**
-     * Downloads a pre-built tile bundle from the server and extracts it locally.
-     * Tiles are built ahead of time on the server per region; the mobile device ONLY extracts.
+     * Downloads both:
+     * 1. Valhalla routing bundle (ZIP) -> extracted to tiles directory.
+     * 2. PMTiles basemap (single file) -> saved directly as basemap.pmtiles (no extraction needed).
      */
-    public boolean downloadAndExtractBundle(String bundleUrl, String regionName) throws Exception {
+    public boolean downloadAndExtractRegion(String bundleUrl, String pmtilesUrl, String regionName) throws Exception {
         File targetDir = getTilesDir(regionName);
         if (!targetDir.exists()) {
             targetDir.mkdirs();
         }
 
-        File tempArchive = new File(context.getCacheDir(), "bundle-" + regionName + ".zip");
-        try {
-            // 1. Download
-            Log.i(TAG, "Downloading tile bundle from: " + bundleUrl);
-            URL url = new URL(bundleUrl);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(30000);
-            connection.connect();
+        // 1. Download & Extract Routing Bundle
+        if (bundleUrl != null && !bundleUrl.isEmpty()) {
+            File tempArchive = new File(context.getCacheDir(), "bundle-" + regionName + ".zip");
+            try {
+                Log.i(TAG, "Downloading Valhalla bundle from: " + bundleUrl);
+                downloadFile(bundleUrl, tempArchive);
 
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                throw new RuntimeException("Server returned HTTP " + connection.getResponseCode() + " " + connection.getResponseMessage());
-            }
-
-            try (InputStream in = new BufferedInputStream(connection.getInputStream());
-                 FileOutputStream out = new FileOutputStream(tempArchive)) {
-                byte[] buffer = new byte[8192];
-                int count;
-                while ((count = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, count);
-                }
-            }
-
-            // 2. Extract ZIP archive into target directory
-            Log.i(TAG, "Extracting tile bundle to: " + targetDir.getAbsolutePath());
-            try (ZipInputStream zis = new ZipInputStream(new FileInputStream(tempArchive))) {
-                ZipEntry entry;
-                byte[] buffer = new byte[8192];
-                while ((entry = zis.getNextEntry()) != null) {
-                    File entryFile = new File(targetDir, entry.getName());
-                    if (entry.isDirectory()) {
-                        entryFile.mkdirs();
-                    } else {
-                        File parent = entryFile.getParentFile();
-                        if (parent != null && !parent.exists()) {
-                            parent.mkdirs();
-                        }
-                        try (FileOutputStream fos = new FileOutputStream(entryFile)) {
-                            int len;
-                            while ((len = zis.read(buffer)) > 0) {
-                                fos.write(buffer, 0, len);
+                Log.i(TAG, "Extracting Valhalla tiles to: " + targetDir.getAbsolutePath());
+                try (ZipInputStream zis = new ZipInputStream(new FileInputStream(tempArchive))) {
+                    ZipEntry entry;
+                    byte[] buffer = new byte[8192];
+                    while ((entry = zis.getNextEntry()) != null) {
+                        File entryFile = new File(targetDir, entry.getName());
+                        if (entry.isDirectory()) {
+                            entryFile.mkdirs();
+                        } else {
+                            File parent = entryFile.getParentFile();
+                            if (parent != null && !parent.exists()) {
+                                parent.mkdirs();
+                            }
+                            try (FileOutputStream fos = new FileOutputStream(entryFile)) {
+                                int len;
+                                while ((len = zis.read(buffer)) > 0) {
+                                    fos.write(buffer, 0, len);
+                                }
                             }
                         }
+                        zis.closeEntry();
                     }
-                    zis.closeEntry();
                 }
+            } finally {
+                if (tempArchive.exists()) tempArchive.delete();
             }
+        }
 
-            // Save region metadata
-            JSONObject meta = new JSONObject();
-            meta.put("region", regionName);
-            meta.put("installedAt", System.currentTimeMillis());
-            meta.put("sourceUrl", bundleUrl);
-            File metaFile = new File(targetDir, "region.json");
-            try (FileOutputStream fos = new FileOutputStream(metaFile)) {
-                fos.write(meta.toString().getBytes("UTF-8"));
-            }
+        // 2. Download PMTiles Basemap (Single File)
+        if (pmtilesUrl != null && !pmtilesUrl.isEmpty()) {
+            File pmtilesTarget = getPmtilesFile(regionName);
+            Log.i(TAG, "Downloading PMTiles visual basemap from: " + pmtilesUrl);
+            downloadFile(pmtilesUrl, pmtilesTarget);
+        }
 
-            return true;
-        } finally {
-            if (tempArchive.exists()) {
-                tempArchive.delete();
+        // Save region metadata
+        JSONObject meta = new JSONObject();
+        meta.put("region", regionName);
+        meta.put("installedAt", System.currentTimeMillis());
+        meta.put("routingBundleUrl", bundleUrl);
+        meta.put("pmtilesUrl", pmtilesUrl);
+        File metaFile = new File(targetDir, "region.json");
+        try (FileOutputStream fos = new FileOutputStream(metaFile)) {
+            fos.write(meta.toString().getBytes("UTF-8"));
+        }
+
+        return true;
+    }
+
+    private void downloadFile(String remoteUrl, File destFile) throws Exception {
+        URL url = new URL(remoteUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(20000);
+        conn.setReadTimeout(60000);
+        conn.connect();
+
+        if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+            throw new RuntimeException("Server returned HTTP " + conn.getResponseCode() + " for " + remoteUrl);
+        }
+
+        try (InputStream in = new BufferedInputStream(conn.getInputStream());
+             FileOutputStream out = new FileOutputStream(destFile)) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = in.read(buffer)) != -1) {
+                out.write(buffer, 0, count);
             }
         }
     }
 
-    /**
-     * Calculates an offline route from start to end with optional intermediate stops.
-     * 
-     * Output coordinates are formatted as [longitude, latitude] to match GeoJSON and MapLibre GL.
-     */
     public RouteResult calculateRoute(double startLat, double startLng,
                                        double endLat, double endLng,
                                        List<double[]> waypoints) throws Exception {
@@ -239,8 +260,6 @@ public class ValhallaEngine {
             }
         }
 
-        // Offline deterministic solver: calculates road-following path, turn-by-turn guidance,
-        // and accurate distances in under 50ms with zero network connection.
         return calculateOfflineRoute(startLat, startLng, endLat, endLng, waypoints, startTime);
     }
 
@@ -266,10 +285,9 @@ public class ValhallaEngine {
             double legDist = haversineMeters(from[0], from[1], to[0], to[1]);
             totalDistanceMeters += legDist;
 
-            // Generate intermediate road curvature points
             int steps = Math.max(5, (int) Math.min(50, legDist / 40.0));
             for (int s = 0; s <= steps; s++) {
-                if (i > 0 && s == 0) continue; // avoid duplicate junction vertex
+                if (i > 0 && s == 0) continue;
                 double fraction = (double) s / steps;
                 double lat = from[0] + fraction * (to[0] - from[0]);
                 double lng = from[1] + fraction * (to[1] - from[1]);
@@ -278,20 +296,19 @@ public class ValhallaEngine {
                 coordinates.add(new double[]{lng, lat});
             }
 
-            // Generate turn instruction
             StepInstruction step = new StepInstruction();
             if (i == 0) {
                 step.instruction = "Head toward " + (i + 1 == allStops.size() - 1 ? "destination" : "Stop " + (i + 1));
-                step.type = 1; // Start
+                step.type = 1;
             } else if (i == allStops.size() - 2) {
                 step.instruction = "Arrive at final destination";
-                step.type = 4; // Destination
+                step.type = 4;
             } else {
                 step.instruction = "Continue to Stop " + (i + 1);
-                step.type = 2; // Maneuver
+                step.type = 2;
             }
             step.distanceMeters = Math.round(legDist);
-            step.timeSeconds = Math.round(legDist / 11.1); // ~40 km/h average speed
+            step.timeSeconds = Math.round(legDist / 11.1);
             instructions.add(step);
         }
 
@@ -326,7 +343,6 @@ public class ValhallaEngine {
             JSONObject leg = legs.getJSONObject(l);
             String encodedShape = leg.optString("shape", "");
             if (!encodedShape.isEmpty()) {
-                // Decode 6-decimal polyline to [lng, lat] GeoJSON coordinates
                 List<double[]> decoded = decodeValhallaPolyline6(encodedShape);
                 result.coordinates.addAll(decoded);
             }
@@ -347,9 +363,6 @@ public class ValhallaEngine {
         return result;
     }
 
-    /**
-     * Decodes a Valhalla 6-decimal precision encoded polyline into [longitude, latitude] coordinates.
-     */
     public static List<double[]> decodeValhallaPolyline6(String encoded) {
         List<double[]> poly = new ArrayList<>();
         int index = 0, len = encoded.length();
@@ -375,7 +388,6 @@ public class ValhallaEngine {
             int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
             lng += dlng;
 
-            // IMPORTANT: Store as [longitude, latitude] for MapLibre / GeoJSON
             poly.add(new double[]{lng / 1e6, lat / 1e6});
         }
         return poly;

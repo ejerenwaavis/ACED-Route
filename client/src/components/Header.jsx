@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server } from 'lucide-react';
+import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map } from 'lucide-react';
 import { getUser, removeToken, getApiBase, setApiBase } from '../services/api';
+import OfflineMapsModal from './OfflineMapsModal';
 
 export default function Header({ user, onAuthChange, onOpenLogin }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showOfflineMaps, setShowOfflineMaps] = useState(false);
   const [customApi, setCustomApi] = useState(getApiBase());
 
   const handleSaveApi = () => {
@@ -24,10 +26,22 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
           <div className="logo-icon">
             <Navigation size={18} />
           </div>
-          <span>ACED Route</span>
+          <div>
+            <div className="brand-title">ACED Route</div>
+            <div className="brand-subtitle">Driver Delivery & Routing</div>
+          </div>
         </div>
 
         <div className="header-actions">
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowOfflineMaps(true)}
+            title="Offline Map Regions"
+          >
+            <Map size={14} />
+            <span style={{ fontSize: '0.75rem' }}>Maps</span>
+          </button>
+
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setShowSettings(true)}
@@ -114,6 +128,11 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
           </div>
         </div>
       )}
+
+      <OfflineMapsModal
+        isOpen={showOfflineMaps}
+        onClose={() => setShowOfflineMaps(false)}
+      />
     </>
   );
 }
