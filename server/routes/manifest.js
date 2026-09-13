@@ -50,13 +50,19 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     const resolvedStops = [];
+    let allDelivered = true;
     for (let i = 0; i < stops.length; i++) {
-      const addr = await getOrGeocodeAddress(stops[i].address);
+      const s = stops[i];
+      const addr = await getOrGeocodeAddress(s.address, s.coordinates);
+      const isDelivered = s.status === 'delivered';
+      if (!isDelivered) allDelivered = false;
+
       resolvedStops.push({
         address: addr._id,
-        trackingNumber: stops[i].trackingNumber || '',
+        trackingNumber: s.trackingNumber || '',
         manifestPosition: i,
-        status: 'pending'
+        status: isDelivered ? 'delivered' : (s.status === 'skipped' ? 'skipped' : 'pending'),
+        completedAt: isDelivered ? (s.completedAt || new Date()) : undefined
       });
     }
 
@@ -64,7 +70,7 @@ router.post('/', requireAuth, async (req, res) => {
       driver: req.user.sub,
       routeDate,
       stops: resolvedStops,
-      status: 'uploaded'
+      status: allDelivered && resolvedStops.length > 0 ? 'completed' : 'uploaded'
     });
 
     const populated = await Manifest.findById(manifest._id).populate('stops.address');

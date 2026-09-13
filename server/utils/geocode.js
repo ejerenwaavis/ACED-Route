@@ -12,13 +12,48 @@ function normalize(raw) {
  * Returns the Address doc for a raw address string, geocoding via Google
  * only if it hasn't been seen before. This is the "geocode once, reuse
  * forever" cache every app should call through — never geocode directly
- * from an app's own route handler.
+/**
+ * Returns the Address doc for a raw address string.
+ * If scanned coordinates [lng, lat] are provided (e.g. from scanner GPS),
+ * uses them directly to save API quota and preserve ground-truth accuracy.
+ * Otherwise geocodes via Google Maps API only if unseen.
  */
-async function getOrGeocodeAddress(rawAddress) {
+async function getOrGeocodeAddress(rawAddress, coordinates) {
   const normalizedAddress = normalize(rawAddress);
 
+  // Normalize coordinates if passed as object { lat, lng }
+  let validCoords = null;
+  if (Array.isArray(coordinates) && coordinates.length === 2 && !isNaN(coordinates[0]) && !isNaN(coordinates[1])) {
+    validCoords = [Number(coordinates[0]), Number(coordinates[1])]; // [lng, lat]
+  } else if (coordinates && typeof coordinates === 'object' && coordinates.lat !== undefined && coordinates.lng !== undefined) {
+    validCoords = [Number(coordinates.lng), Number(coordinates.lat)];
+  }
+
   let addr = await Address.findOne({ normalizedAddress });
-  if (addr) return addr;
+  if (addr) {
+    // If address previously had no coordinates or placeholder, and we now have real GPS, update it!
+    if (validCoords && (!addr.location || !addr.location.coordinates || addr.geocodeSource === 'no_api_key')) {
+      addr.location = { type: 'Point', coordinates: validCoords };
+      addr.geocodeSource = 'scanned_gps';
+      await addr.save();
+    }
+    return addr;
+  }
+
+  // If we already have scanned coordinates from the manifest, use them directly!
+  if (validCoords) {
+    return await Address.create({
+      raw: rawAddress,
+      normalizedAddress,
+      street: rawAddress,
+      location: {
+        type: 'Point',
+        coordinates: validCoords
+      },
+      geocodeSource: 'scanned_gps',
+      geocodedAt: new Date()
+    });
+  }
 
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) {
