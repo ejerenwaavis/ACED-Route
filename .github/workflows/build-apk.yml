@@ -30,6 +30,9 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Build Local Routing Plugin
         run: |
           cd mobile/plugins/aced-routing
@@ -74,6 +77,8 @@ jobs:
         run: |
           echo "=== GRADLE FAILURE LOG ==="
           cat mobile/android/gradle.log | tail -n 120
+          ERR_MSG=$(tail -n 15 mobile/android/gradle.log | tr '\r\n' '  ')
+          echo "::error title=Gradle Build Error::$ERR_MSG"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
