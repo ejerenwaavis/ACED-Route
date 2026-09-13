@@ -75,10 +75,13 @@ jobs:
       - name: Print Gradle Log on Failure
         if: failure()
         run: |
-          echo "=== GRADLE FAILURE LOG ==="
-          cat mobile/android/gradle.log | tail -n 120
-          ERR_MSG=$(tail -n 15 mobile/android/gradle.log | tr '\r\n' '  ')
-          echo "::error title=Gradle Build Error::$ERR_MSG"
+          echo "=== WHAT WENT WRONG ==="
+          grep -A 15 "\* What went wrong:" mobile/android/gradle.log || cat mobile/android/gradle.log | tail -n 60
+          ERR_MSG=$(grep -A 5 "\* What went wrong:" mobile/android/gradle.log | tr '\r\n' '  ')
+          if [ -z "$ERR_MSG" ]; then
+            ERR_MSG=$(tail -n 20 mobile/android/gradle.log | tr '\r\n' '  ')
+          fi
+          echo "::error title=Gradle Root Cause::$ERR_MSG"
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
