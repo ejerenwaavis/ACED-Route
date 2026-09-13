@@ -12,11 +12,13 @@
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.2",
+    "aced-routing": "file:../mobile/plugins/aced-routing",
     "lucide-react": "^1.16.0",
+    "maplibre-gl": "^6.9.0",
     "papaparse": "^5.4.1",
+    "pmtiles": "^4.5.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "aced-routing": "file:../mobile/plugins/aced-routing"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.5",
