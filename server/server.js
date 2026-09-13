@@ -41,14 +41,20 @@ if (missing.length) {
   console.warn(`[aced-route] Missing env vars: ${missing.join(', ')} — see .env.example`);
 }
 
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log('[aced-route] Mongo connected — one database, shared across all ACED apps');
-    const port = process.env.PORT || 3000;
-    app.listen(port, () => console.log(`[aced-route] listening on :${port}`));
-  })
-  .catch((err) => {
-    console.error('[aced-route] Mongo connection failed:', err.message);
-    process.exit(1);
-  });
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`[aced-route] listening on :${port}`);
+});
+
+if (process.env.MONGODB_URI) {
+  mongoose
+    .connect(process.env.MONGODB_URI)
+    .then(() => {
+      console.log('[aced-route] Mongo connected — one database, shared across all ACED apps');
+    })
+    .catch((err) => {
+      console.error('[aced-route] Mongo connection failed:', err.message);
+    });
+} else {
+  console.warn('[aced-route] MONGODB_URI not configured yet. Set in .env or cPanel Node environment variables.');
+}
