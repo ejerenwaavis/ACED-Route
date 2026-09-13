@@ -1,0 +1,42 @@
+{
+  "name": "aced-routing",
+  "version": "1.0.0",
+  "description": "Offline Valhalla routing engine plugin for ACED Route",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "author": "ACED Division LLC",
+  "license": "UNLICENSED",
+  "files": [
+    "android",
+    "ios",
+    "dist/",
+    "Package.swift",
+    "AcedRouting.podspec"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "valhalla",
+    "offline-routing",
+    "navigation"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.5.2",
+    "typescript": "^5.4.5"
+  }
+}
