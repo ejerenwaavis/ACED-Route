@@ -1,0 +1,8 @@
+{
+  "appId": "com.aceddivisionllc.acedroute",
+  "appName": "ACED Route",
+  "webDir": "../public_html",
+  "server": {
+    "androidScheme": "https"
+  }
+}

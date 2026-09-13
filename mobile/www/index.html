@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACED Route</title>
+<style>
+  :root{ --accent:#2f5fdb; --bg:#f3f5fa; --text:#171d33; --sub:#5c6479; }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--text);height:100vh;display:flex;align-items:center;justify-content:center;}
+  .card{text-align:center;padding:2rem;}
+  h1{font-size:1.4rem;margin-bottom:.25rem;}
+  p{color:var(--sub);font-size:.9rem;margin-bottom:1.5rem;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:999px;padding:.9rem 1.8rem;
+    font-size:1rem;font-weight:600;}
+  #status{margin-top:1rem;font-size:.8rem;color:var(--sub);}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>ACED Route</h1>
+    <p>Sign in to load today's manifest.</p>
+    <button id="loginBtn">Sign in with Google</button>
+    <div id="status"></div>
+  </div>
+
+<script type="module">
+  import { Browser } from '@capacitor/browser';
+  import { App } from '@capacitor/app';
+
+  // Point this at your deployed backend once it's live.
+  const API_BASE = 'https://route.aceddivisionllc.com';
+
+  document.getElementById('loginBtn').addEventListener('click', () => {
+    Browser.open({ url: `${API_BASE}/api/auth/google` });
+  });
+
+  // The backend redirects to acedroute://auth-callback?token=... after
+  // Google sign-in completes. This listener catches that when the OS
+  // hands control back to the app.
+  App.addListener('appUrlOpen', (data) => {
+    const url = new URL(data.url);
+    if (url.host === 'auth-callback') {
+      const token = url.searchParams.get('token');
+      if (token) {
+        localStorage.setItem('aced_jwt', token);
+        document.getElementById('status').textContent = 'Signed in.';
+        Browser.close();
+        // TODO: navigate to the manifest/route screen now that we have a token.
+      }
+    }
+  });
+</script>
+</body>
+</html>

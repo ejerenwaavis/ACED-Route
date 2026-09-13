@@ -1,0 +1,13 @@
+{
+  "name": "aced-route-workspace",
+  "version": "1.0.0",
+  "description": "ACED Route — Driver routing and machine-learning sequencing platform",
+  "scripts": {
+    "build:client": "npm --prefix client run build",
+    "sync:mobile": "npm --prefix mobile run sync",
+    "build": "npm run build:client && npm run sync:mobile",
+    "start:server": "node server/server.js",
+    "dev:server": "nodemon server/server.js",
+    "dev:client": "npm --prefix client run dev"
+  }
+}
