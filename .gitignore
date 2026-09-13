@@ -4,6 +4,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+scripts/
 
 # Android local properties and gradle caches
 .gradle/

@@ -1,10 +1,9 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const passport = require('./config/passport');
-
-const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const brandRoutes = require('./routes/brand');
