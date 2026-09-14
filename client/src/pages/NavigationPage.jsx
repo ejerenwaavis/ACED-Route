@@ -23,6 +23,7 @@ import NextStopCard from '../components/navigation/NextStopCard';
 import { useNavigationGuidance } from '../hooks/useNavigationGuidance';
 import { useLanguage, getLanguage, translateManeuver } from '../utils/i18n';
 import { haversineDistance } from '../utils/geoUtils';
+import { getCachedCoordinates } from '../utils/geocodeCache';
 
 export default function NavigationPage({ manifest, stops: initialStops, onRouteComplete }) {
   const { t, lang } = useLanguage();
@@ -133,7 +134,11 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const computeLegRef = useRef(null);
   computeLegRef.current = async function computeLeg() {
     if (!activeStop) return;
-    const targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
+    let targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
+    if (!targetCoords || targetCoords.length < 2) {
+      const addrStr = activeAddr.street || activeAddr.raw || activeAddr.normalizedAddress || activeStop.address;
+      targetCoords = getCachedCoordinates(addrStr);
+    }
     if (!targetCoords || targetCoords.length < 2) return;
 
     // Valhalla expects [lat, lng]
@@ -149,7 +154,10 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       }
     } else if (currentIndex > 0) {
       const prev = stops[currentIndex - 1];
-      const prevCoords = prev.address?.location?.coordinates || prev.coordinates;
+      let prevCoords = prev.address?.location?.coordinates || prev.coordinates;
+      if (!prevCoords || prevCoords.length < 2) {
+        prevCoords = getCachedCoordinates(prev.address?.street || prev.address?.raw || prev.address);
+      }
       if (prevCoords && prevCoords.length >= 2) {
         originLatLng = [prevCoords[1], prevCoords[0]];
       }

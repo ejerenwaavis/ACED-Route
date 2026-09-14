@@ -33,6 +33,7 @@ import MapFloatingControls from './navigation/MapFloatingControls';
 import NextStopCard from './navigation/NextStopCard';
 import { useLanguage } from '../utils/i18n';
 import { haversineDistance } from '../utils/geoUtils';
+import { getCachedCoordinates } from '../utils/geocodeCache';
 
 /**
  * Helper to extract valid [lng, lat] from any stop shape.
@@ -71,6 +72,19 @@ function getStopCoords(stop) {
     }
     if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) {
       return [lng, lat];
+    }
+  }
+
+  // 3. Fallback to geocode cache by address
+  const addrStr = typeof stop === 'string'
+    ? stop
+    : (typeof stop.address === 'string'
+        ? stop.address
+        : (stop.address?.street || stop.address?.raw || stop.address?.normalizedAddress || stop.street || stop.raw || ''));
+  if (addrStr) {
+    const cached = getCachedCoordinates(addrStr);
+    if (cached && Array.isArray(cached) && cached.length >= 2) {
+      return [cached[0], cached[1]];
     }
   }
 
@@ -251,25 +265,54 @@ function safeAddSource(map, id, sourceDef) {
   }
 }
 
+export const OVERLAY_LAYER_IDS = [
+  'sequence-route-casing',
+  'sequence-route',
+  'active-route-casing',
+  'active-route',
+  'driver-puck-halo',
+  'driver-puck-core',
+  'stops-active-halo',
+  'stops-pin-outer',
+  'stops-number-label'
+];
+
 /**
- * Safely adds layer to MapLibre instance.
- * Returns true if the layer was already present OR was added successfully.
- * Returns false if addLayer threw.
+ * Safely adds an overlay layer to MapLibre instance with NO beforeId,
+ * and immediately moves it to the top of the stack above raster tiles.
  */
-function safeAddLayer(map, layerDef, beforeId) {
+function addOverlayLayer(map, layerDef) {
   try {
-    if (map.getLayer(layerDef.id)) return true; // Already exists
-    if (beforeId && map.getLayer(beforeId)) {
-      map.addLayer(layerDef, beforeId);
-    } else {
+    if (!map.getLayer(layerDef.id)) {
       map.addLayer(layerDef);
     }
+    // With no second argument, moveLayer pushes layer to the end of layers array = top of rendering stack
+    map.moveLayer(layerDef.id);
     return true;
   } catch (e) {
-    console.error(`[MapView] safeAddLayer FAILED (${layerDef.id}):`, e.message);
+    console.error(`[MapView] addOverlayLayer FAILED (${layerDef.id}):`, e.message);
     return false;
   }
 }
+
+/**
+ * Ensures all registered overlay layers are strictly above any raster basemaps.
+ * Can be called during style reloads, theme switches, or styledata events.
+ */
+function ensureOverlaysOnTop(map) {
+  if (!map) return;
+  OVERLAY_LAYER_IDS.forEach((id) => {
+    try {
+      if (map.getLayer(id)) {
+        map.moveLayer(id);
+      }
+    } catch (_) {}
+  });
+}
+
+// Backward compatibility alias for any existing callers
+const safeAddLayer = addOverlayLayer;
+
 
 
 export default function MapView({
@@ -557,27 +600,17 @@ export default function MapView({
       }
 
       // Explicitly move all custom overlay layers to the TOP of the layer stack so raster tiles cannot cover them
-      const overlayLayerIds = [
-        'sequence-route-casing',
-        'sequence-route',
-        'active-route-casing',
-        'active-route',
-        'driver-puck-halo',
-        'driver-puck-core',
-        'stops-active-halo',
-        'stops-pin-outer',
-        'stops-number-label'
-      ];
-      overlayLayerIds.forEach((id) => {
-        try {
-          if (map.getLayer(id)) map.moveLayer(id);
-        } catch (_) {}
-      });
+      ensureOverlaysOnTop(map);
+
+      const seqGeoJSON = buildSequenceRouteGeoJSON(curStops);
+      const activeGeoJSON = buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc);
+      const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
+      const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
 
       // Verify the critical layer truly exists before declaring success
       const confirmed = !!map.getLayer('stops-pin-outer') && !!map.getSource('stops-source');
       if (confirmed) {
-        if (dbg) dbg(`OK pins:${pinOk} stops:${curStops.length} valid:${validCoordCount}`);
+        if (dbg) dbg(`pins:true dom:${markersRef.current?.length || 0} stops:${curStops.length} lines:{sequence:${seqCoordsCount}, active:${actCoordsCount}}`);
         mapRef.current = map;
         setMapLoaded(true);
         return true;
@@ -642,6 +675,11 @@ export default function MapView({
     map.on('dragstart', handleUserMapInteraction);
     map.on('rotatestart', handleUserMapInteraction);
     map.on('pitchstart', handleUserMapInteraction);
+
+    // Keep overlay layers strictly on top whenever raster basemaps refresh or style updates
+    map.on('styledata', () => {
+      ensureOverlaysOnTop(map);
+    });
 
     // PRIMARY: load event — fires when style is applied and map canvas is ready.
     // This is the standard reliable hook for addSource/addLayer.
@@ -738,16 +776,27 @@ export default function MapView({
     if (!map) return;
 
     try {
+      const seqGeoJSON = buildSequenceRouteGeoJSON(stops);
       const seqSource = map.getSource('sequence-route-source');
       if (seqSource) {
-        seqSource.setData(buildSequenceRouteGeoJSON(stops));
+        seqSource.setData(seqGeoJSON);
       } else {
         setupLayers(map);
       }
 
+      const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation);
       const activeSource = map.getSource('active-route-source');
       if (activeSource) {
-        activeSource.setData(buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation));
+        activeSource.setData(activeGeoJSON);
+      }
+
+      ensureOverlaysOnTop(map);
+
+      const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
+      const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
+
+      if (setDebugInfoRef.current) {
+        setDebugInfoRef.current(`pins:true dom:${markersRef.current?.length || 0} stops:${stops?.length || 0} lines:{sequence:${seqCoordsCount}, active:${actCoordsCount}}`);
       }
     } catch (err) {
       console.warn('[MapView] Failed to update route polylines:', err);
@@ -806,10 +855,15 @@ export default function MapView({
       markersRef.current.push(marker);
     });
 
+    const seqGeoJSON = buildSequenceRouteGeoJSON(curStops);
+    const activeGeoJSON = buildActiveRouteGeoJSON(curStops, activeIndex, activeRouteCoordinates, driverLocation);
+    const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
+    const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
+
     if (setDebugInfoRef.current) {
-      setDebugInfoRef.current(`OK pins:true dom:${markersRef.current.length} stops:${curStops.length}`);
+      setDebugInfoRef.current(`pins:true dom:${markersRef.current.length} stops:${curStops.length} lines:{sequence:${seqCoordsCount}, active:${actCoordsCount}}`);
     }
-  }, [stops, activeIndex, selectedStopIndex, mapLoaded]);
+  }, [stops, activeIndex, selectedStopIndex, mapLoaded, activeRouteCoordinates, driverLocation]);
 
   // Update HTML Driver GPS Puck Marker (Zero-Jitter Smooth Animation)
   const lastDriverBearingRef = useRef(0);
@@ -1053,6 +1107,11 @@ export default function MapView({
           </div>
         )}
 
+        {/* Always-visible live diagnostic HUD */}
+        <div className="map-debug-hud-pill">
+          <span>{debugInfo}</span>
+        </div>
+
         {/* Modular Floating Map Controls (Notch Safe) */}
         <MapFloatingControls
           isNavigating={isNavigating}
@@ -1070,8 +1129,8 @@ export default function MapView({
           t={t}
         />
 
-        {/* Floating Current Street Pill (Image 3 Mockup) */}
-        {isNavigating && (() => {
+        {/* Floating Current Street Pill (Image 3 Mockup) - suppressed when expanded sheet is open */}
+        {isNavigating && !selectedStop && !showExpandedStopCard && (() => {
           const street = guidance?.currentInstruction?.streetNames?.[0]
             || (stops && stops[activeIndex]?.address?.street)
             || (stops && stops[activeIndex]?.address?.raw)

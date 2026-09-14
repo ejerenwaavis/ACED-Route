@@ -83,9 +83,9 @@ export default function UploadPage({ onManifestUploaded }) {
     }
   };
 
-  // Load sample manifest for quick testing (Picks random 10-stop sequential slice from real Suwanee pool)
+  // Load sample manifest for quick testing (Picks random 50-stop sequential slice from real Suwanee pool)
   const handleLoadSample = async () => {
-    const randomSlice = getRandomSampleSlice(10);
+    const randomSlice = getRandomSampleSlice(50);
     // Pre-cache coordinates for each stop in the slice so zero Google Geocoding API quota is consumed
     randomSlice.forEach((s) => {
       if (s.address && s.lng != null && s.lat != null) {

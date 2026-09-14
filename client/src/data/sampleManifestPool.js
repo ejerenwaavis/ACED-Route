@@ -105,9 +105,9 @@ export const SUWANEE_SAMPLE_POOL = [
 
 /**
  * Returns a random continuous slice of `count` stops from the sample pool.
- * e.g. stops 15-25, 35-45, 1-10, preserving exact real sequential order.
+ * e.g. stops 1-50, 20-70, 35-85, preserving exact real sequential order.
  */
-export function getRandomSampleSlice(count = 10) {
+export function getRandomSampleSlice(count = 50) {
   const total = SUWANEE_SAMPLE_POOL.length;
   if (total <= count) return SUWANEE_SAMPLE_POOL;
   const maxStart = total - count;

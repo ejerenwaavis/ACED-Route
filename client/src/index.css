@@ -1276,3 +1276,38 @@ body {
   border-color: rgba(229, 72, 77, 0.4) !important;
   background: rgba(229, 72, 77, 0.15) !important;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Live Map Diagnostic HUD Pill
+   ───────────────────────────────────────────────────────────────────────────── */
+.map-debug-hud-pill {
+  position: absolute;
+  top: 4.5rem;
+  left: 0.75rem;
+  z-index: 110;
+  pointer-events: none;
+  max-width: 90vw;
+}
+
+.maplibre-container:not(.maplibre-fullscreen) .map-debug-hud-pill {
+  top: 0.75rem;
+}
+
+.map-debug-hud-pill span {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.25rem 0.65rem;
+  background: rgba(15, 23, 42, 0.92);
+  color: #38bdf8;
+  border-radius: 9999px;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

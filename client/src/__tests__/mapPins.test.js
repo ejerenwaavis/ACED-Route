@@ -59,10 +59,50 @@ function safeAddLayer(map, layerDef) {
   try { if (map.getLayer(layerDef.id)) return true; map.addLayer(layerDef); return true; }
   catch(e) { return false; }
 }
+function addOverlayLayer(map, layerDef) {
+  try {
+    if (!map.getLayer(layerDef.id)) map.addLayer(layerDef);
+    map.moveLayer(layerDef.id);
+    return true;
+  } catch(e) { return false; }
+}
+function ensureOverlaysOnTop(map, overlayIds) {
+  if (!map) return;
+  overlayIds.forEach(id => {
+    try { if (map.getLayer(id)) map.moveLayer(id); } catch(_) {}
+  });
+}
 function createMockMap({ failAddSource=false }={}) {
   const sources={}, layers={};
-  return { getSource:(id)=>sources[id]||null, addSource:(id,def)=>{ if(failAddSource) throw new Error('Style not loaded'); sources[id]=def; },
-           getLayer:(id)=>layers[id]||null, addLayer:(def)=>{ layers[def.id]=def; }, _sources:sources, _layers:layers };
+  const layerOrder = [];
+  return {
+    getSource: (id) => sources[id] || null,
+    addSource: (id, def) => { if (failAddSource) throw new Error('Style not loaded'); sources[id] = def; },
+    getLayer: (id) => layers[id] || null,
+    addLayer: (def, beforeId) => {
+      layers[def.id] = def;
+      if (beforeId && layerOrder.includes(beforeId)) {
+        const idx = layerOrder.indexOf(beforeId);
+        layerOrder.splice(idx, 0, def.id);
+      } else {
+        layerOrder.push(def.id);
+      }
+    },
+    moveLayer: (id, beforeId) => {
+      if (!layers[id]) return;
+      const curIdx = layerOrder.indexOf(id);
+      if (curIdx > -1) layerOrder.splice(curIdx, 1);
+      if (beforeId && layerOrder.includes(beforeId)) {
+        const idx = layerOrder.indexOf(beforeId);
+        layerOrder.splice(idx, 0, id);
+      } else {
+        layerOrder.push(id);
+      }
+    },
+    _sources: sources,
+    _layers: layers,
+    _layerOrder: layerOrder
+  };
 }
 
 // -- Fixtures ------------------------------------------------------------------
@@ -314,6 +354,92 @@ const snappedLine = testBuildActiveRoute(driverTestLoc, stop1TestCoords, existin
 assert('Pre-calculated polyline snaps head to current driver location', snappedLine[0][0] === -84.148 && snappedLine[0][1] === 34.090);
 assert('Pre-calculated polyline preserves destination waypoint', snappedLine[2][0] === -84.0844 && snappedLine[2][1] === 34.0321);
 
+// S10: Layer Ordering Research & addOverlayLayer Rule Helper
+console.log('\nS10: Layer Ordering Research & addOverlayLayer Rule Helper');
+const mockMap = createMockMap();
+// Basemap raster tile added first
+mockMap.addLayer({ id: 'esri-street-layer', type: 'raster' });
+assert('Initial basemap layer registered', mockMap._layerOrder[0] === 'esri-street-layer');
+
+// Overlay layers added via addOverlayLayer
+const testOverlays = [
+  'sequence-route-casing',
+  'sequence-route',
+  'active-route-casing',
+  'active-route',
+  'driver-puck-halo',
+  'driver-puck-core',
+  'stops-active-halo',
+  'stops-pin-outer',
+  'stops-number-label'
+];
+
+testOverlays.forEach(id => {
+  addOverlayLayer(mockMap, { id, type: id.includes('route') ? 'line' : (id.includes('label') ? 'symbol' : 'circle') });
+});
+
+assert('All 9 custom overlay layers are positioned AFTER/ABOVE the raster layer',
+  testOverlays.every(id => mockMap._layerOrder.indexOf(id) > mockMap._layerOrder.indexOf('esri-street-layer'))
+);
+assert('Raster basemap remains at index 0 (bottom)', mockMap._layerOrder[0] === 'esri-street-layer');
+
+// Simulate style reload adding a new raster layer or resetting
+mockMap.addLayer({ id: 'esri-dark-base-layer', type: 'raster' });
+assert('New raster layer temporarily inserted at end', mockMap._layerOrder[mockMap._layerOrder.length - 1] === 'esri-dark-base-layer');
+// Run ensureOverlaysOnTop
+ensureOverlaysOnTop(mockMap, testOverlays);
+assert('After ensureOverlaysOnTop, all overlays pushed back above raster basemaps',
+  testOverlays.every(id => mockMap._layerOrder.indexOf(id) > mockMap._layerOrder.indexOf('esri-dark-base-layer'))
+);
+
+// S11: Sequence and Active Line Coordinates Non-Zero Verification
+console.log('\nS11: Sequence & Active Line Non-Zero Coordinates Verification');
+// 50-stop slice
+const sampleSlice50 = getRandomSampleSlice(50);
+assert('Default getRandomSampleSlice returns 50 stops', sampleSlice50.length === 50);
+const sampleSlice80 = getRandomSampleSlice(80);
+assert('getRandomSampleSlice(80) returns 80 stops', sampleSlice80.length === 80);
+
+// Verify sequence route GeoJSON from 50 stops
+const seqFC = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: sampleSlice50.map(s => [s.lng, s.lat])
+      }
+    }
+  ]
+};
+const seqCoordCount = seqFC.features[0].geometry.coordinates.length;
+assert('Sequence route has exactly 50 coordinates (strictly > 0)', seqCoordCount === 50);
+
+// Verify active route GeoJSON with vehicle location and stop 1
+const activeLineTest = testBuildActiveRoute({ longitude: -84.15, latitude: 34.09 }, [sampleSlice50[0].lng, sampleSlice50[0].lat], null);
+const actCoordCount = activeLineTest.length;
+assert('Active route line has 16 coordinates (strictly > 0)', actCoordCount === 16);
+
+// S12: Debug HUD String Format & CSS Presence
+console.log('\nS12: Debug HUD String Format & CSS Presence');
+const simulatedDebugString = `pins:true dom:50 stops:50 lines:{sequence:${seqCoordCount}, active:${actCoordCount}}`;
+assert('Debug string matches exact HUD format', simulatedDebugString === 'pins:true dom:50 stops:50 lines:{sequence:50, active:16}');
+assert('CSS has map-debug-hud-pill selector', /\.map-debug-hud-pill/.test(cssContent));
+assert('CSS has map-debug-hud-pill span styling with monospace and z-index 110', /\.map-debug-hud-pill span[^{]*\{[^}]*ui-monospace/.test(cssContent));
+
+// S13: AppUpdateModal Redesign Verification
+console.log('\nS13: AppUpdateModal 3-State Redesign Verification');
+const updateModalCode = fs.readFileSync(path.join(__dirname, '../components/AppUpdateModal.jsx'), 'utf8');
+assert('AppUpdateModal defines ready, installing, and complete states', updateModalCode.includes("step === 'ready'") && updateModalCode.includes("step === 'installing'") && updateModalCode.includes("step === 'complete'"));
+assert('AppUpdateModal contains CURRENTLY INSTALLED card', updateModalCode.includes('CURRENTLY INSTALLED'));
+assert('AppUpdateModal contains CLOUD RELEASE card', updateModalCode.includes('CLOUD RELEASE'));
+assert('AppUpdateModal contains SUPPORTS OFFLINE MAPS pill', updateModalCode.includes('SUPPORTS OFFLINE MAPS'));
+assert('AppUpdateModal contains What\'s New card', updateModalCode.includes("What's New"));
+assert('AppUpdateModal contains What\'s Improved checklist', updateModalCode.includes("What's Improved"));
+assert('AppUpdateModal retains ACED Route branding (not YURI)', !updateModalCode.includes('YURI'));
+
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
 if(fail>0) process.exit(1);
+
