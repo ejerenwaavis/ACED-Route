@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 import { formatDistance } from '../../utils/geoUtils';
 import { translateManeuver, t, getLanguage } from '../../utils/i18n';
 
@@ -57,6 +58,7 @@ export default function TurnInstructionCard({
   distanceToManeuver,
   isRecalculating,
   language = getLanguage(),
+  onExit,
 }) {
   if (!currentInstruction && !isRecalculating) {
     return null;
@@ -94,6 +96,18 @@ export default function TurnInstructionCard({
               {displayInstruction || 'Follow route'}
             </div>
           </div>
+
+          {/* Quick Exit Navigation Action */}
+          {onExit && (
+            <button
+              className="turn-card-exit-btn"
+              onClick={onExit}
+              title={t('exitNav') || 'Exit Navigation'}
+            >
+              <X size={15} />
+              <span>{t('exitNav') || 'Exit'}</span>
+            </button>
+          )}
         </div>
 
         {/* Subsequent Next Maneuver Preview Strip */}

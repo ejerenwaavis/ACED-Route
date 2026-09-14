@@ -256,17 +256,39 @@ public class AcedRoutingPlugin extends Plugin {
         });
     }
 
+    private double lastValidBearing = 0.0;
+    private Location lastReportedLocation = null;
+
     @PluginMethod
     public void startNavigationTracking(PluginCall call) {
         try {
             NavigationForegroundService.setLocationCallback(location -> {
+                double speed = location.hasSpeed() ? (double) location.getSpeed() : 0.0;
+                double bearing = lastValidBearing;
+
+                // Only update bearing when vehicle is genuinely moving (>= 0.8 m/s or >= 2.5m displacement)
+                // This eliminates erratic compass jitter and prevents snapping back to 0.0 when stopped
+                if (location.hasBearing() && speed >= 0.8) {
+                    bearing = (double) location.getBearing();
+                    lastValidBearing = bearing;
+                } else if (lastReportedLocation != null) {
+                    float distMoved = lastReportedLocation.distanceTo(location);
+                    if (distMoved >= 2.5f) {
+                        float calcBearing = lastReportedLocation.bearingTo(location);
+                        if (calcBearing < 0) calcBearing += 360.0f;
+                        bearing = (double) calcBearing;
+                        lastValidBearing = bearing;
+                    }
+                }
+                lastReportedLocation = location;
+
                 JSObject data = new JSObject();
                 data.put("latitude", location.getLatitude());
                 data.put("longitude", location.getLongitude());
                 data.put("accuracy", location.getAccuracy());
                 data.put("altitude", location.getAltitude());
-                data.put("bearing", location.hasBearing() ? (double) location.getBearing() : 0.0);
-                data.put("speed", location.hasSpeed() ? (double) location.getSpeed() : 0.0);
+                data.put("bearing", bearing);
+                data.put("speed", speed);
                 data.put("time", location.getTime());
                 notifyListeners("locationUpdate", data);
             });

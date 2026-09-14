@@ -17,6 +17,8 @@ import {
   buildStopsFromRows,
   SAMPLE_MANIFEST_CSV
 } from '../utils/manifestParser';
+import { getRandomSampleSlice, formatSampleSliceToCSV } from '../data/sampleManifestPool';
+import { getCachedCoordinates, setCachedCoordinates } from '../utils/geocodeCache';
 import { api } from '../services/api';
 import { useLanguage } from '../utils/i18n';
 
@@ -81,10 +83,12 @@ export default function UploadPage({ onManifestUploaded }) {
     }
   };
 
-  // Load sample manifest for quick testing
+  // Load sample manifest for quick testing (Picks random 10-stop sequential slice from real Suwanee pool)
   const handleLoadSample = async () => {
-    setRawText(SAMPLE_MANIFEST_CSV);
-    const result = await parseManifestContent(SAMPLE_MANIFEST_CSV);
+    const randomSlice = getRandomSampleSlice(10);
+    const csvContent = formatSampleSliceToCSV(randomSlice);
+    setRawText(csvContent);
+    const result = await parseManifestContent(csvContent);
     applyParsedResult(result);
     setShowPaste(true);
     setError(null);
@@ -123,13 +127,29 @@ export default function UploadPage({ onManifestUploaded }) {
     setLoading(true);
     setError(null);
     try {
-      const payloadStops = parsedStops.map((s) => ({
-        trackingNumber: s.trackingNumber,
-        address: s.address,
-        coordinates: s.coordinates,
-        status: s.status || 'pending'
-      }));
+      const payloadStops = parsedStops.map((s) => {
+        let coords = s.coordinates;
+        if (!coords || !coords.length) {
+          coords = getCachedCoordinates(s.address);
+        }
+        return {
+          trackingNumber: s.trackingNumber,
+          address: s.address,
+          coordinates: coords,
+          status: s.status || 'pending'
+        };
+      });
       const createdManifest = await api.uploadManifest(routeDate, payloadStops);
+      // Cache returned geocodes to prevent future Google API calls
+      if (createdManifest && Array.isArray(createdManifest.stops)) {
+        createdManifest.stops.forEach((st) => {
+          const c = st.address?.location?.coordinates || st.coordinates;
+          const a = st.address?.street || st.address?.raw || st.address;
+          if (a && c && c.length >= 2) {
+            setCachedCoordinates(a, c);
+          }
+        });
+      }
       onManifestUploaded(createdManifest);
     } catch (err) {
       setError(err.message || 'Failed to upload and geocode manifest.');

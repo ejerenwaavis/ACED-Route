@@ -1032,6 +1032,38 @@ body {
   white-space: nowrap;
 }
 
+.turn-card-exit-btn {
+  background: rgba(229, 72, 77, 0.18);
+  border: 1px solid rgba(229, 72, 77, 0.45);
+  color: #FF6B6B;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.turn-card-exit-btn:hover {
+  background: rgba(229, 72, 77, 0.35);
+  color: #FFFFFF;
+}
+
+/* Offset floating controls down so they never overlap the turn card during active navigation */
+.maplibre-navigating-active .maplibre-controls-overlay {
+  top: calc(env(safe-area-inset-top, 0px) + 8.5rem);
+}
+
+/* Smooth rotational transition for vehicle marker arrow (prevents twitching / erratic spinning) */
+.vehicle-marker-arrow {
+  transition: transform 0.35s cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: center center;
+}
+
 .turn-subsequent-strip {
   background: rgba(0, 0, 0, 0.35);
   border-top: 1px solid #2E3238;

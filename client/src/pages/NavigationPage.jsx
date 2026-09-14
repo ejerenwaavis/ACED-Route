@@ -76,15 +76,49 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     setNotesInput(activeStop.notes || activeAddr.notes || '');
   }, [currentIndex, activeStop]);
 
-  // Track Driver GPS Location
+  // Track Driver GPS Location with Heading Calculation & Speed Smoothing
+  const lastGpsPosRef = useRef(null);
+  const lastGpsHeadingRef = useRef(0);
+  const hasGpsLockedRef = useRef(false);
+
   useEffect(() => {
     if (!navigator.geolocation) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        setDriverLocation([pos.coords.longitude, pos.coords.latitude]);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const speed = pos.coords.speed ?? 0;
+        let bearing = pos.coords.heading;
+
+        if (lastGpsPosRef.current) {
+          const distMoved = haversineDistance(lastGpsPosRef.current.lat, lastGpsPosRef.current.lng, lat, lng);
+          // Only recompute heading if moved >= 2.5 meters to prevent stationary jitter
+          if (distMoved >= 2.5) {
+            const y = Math.sin((lng - lastGpsPosRef.current.lng) * Math.PI / 180) * Math.cos(lat * Math.PI / 180);
+            const x = Math.cos(lastGpsPosRef.current.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
+                      Math.sin(lastGpsPosRef.current.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.cos((lng - lastGpsPosRef.current.lng) * Math.PI / 180);
+            const calcBrng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+            bearing = calcBrng;
+            lastGpsHeadingRef.current = calcBrng;
+            lastGpsPosRef.current = { lat, lng };
+          } else {
+            bearing = lastGpsHeadingRef.current;
+          }
+        } else {
+          lastGpsPosRef.current = { lat, lng };
+          if (bearing == null || isNaN(bearing)) bearing = 0;
+          lastGpsHeadingRef.current = bearing;
+        }
+
+        setDriverLocation({
+          latitude: lat,
+          longitude: lng,
+          bearing: bearing ?? lastGpsHeadingRef.current,
+          speed: speed
+        });
       },
       (err) => console.warn('GPS watch notice:', err.message),
-      { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 }
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
@@ -96,62 +130,81 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   }, [driverLocation]);
 
   // Calculate Offline Valhalla Route Leg to Active Stop.
-  // IMPORTANT: driverLocation is intentionally NOT in the dependency array.
-  // Route only recalculates when the active stop changes. Reading driverLocation
-  // via ref avoids re-triggering this effect on every GPS tick, which was the
-  // root cause of spokenFlags being reset and the voice guidance looping.
-  useEffect(() => {
-    let isCancelled = false;
+  const computeLegRef = useRef(null);
+  computeLegRef.current = async function computeLeg() {
+    if (!activeStop) return;
+    const targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
+    if (!targetCoords || targetCoords.length < 2) return;
 
-    async function computeLeg() {
-      if (!activeStop) return;
-      const targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
-      if (!targetCoords || targetCoords.length < 2) return;
+    // Valhalla expects [lat, lng]
+    const targetLatLng = [targetCoords[1], targetCoords[0]];
 
-      // Valhalla expects [lat, lng]
-      const targetLatLng = [targetCoords[1], targetCoords[0]];
-
-      const curDriverLoc = driverLocationRef.current;
-      let originLatLng = null;
-      if (curDriverLoc) {
-        if (Array.isArray(curDriverLoc) && curDriverLoc.length >= 2) {
-          originLatLng = [curDriverLoc[1], curDriverLoc[0]];
-        } else if (curDriverLoc.latitude != null && curDriverLoc.longitude != null) {
-          originLatLng = [curDriverLoc.latitude, curDriverLoc.longitude];
-        }
-      } else if (currentIndex > 0) {
-        const prev = stops[currentIndex - 1];
-        const prevCoords = prev.address?.location?.coordinates || prev.coordinates;
-        if (prevCoords && prevCoords.length >= 2) {
-          originLatLng = [prevCoords[1], prevCoords[0]];
-        }
+    const curDriverLoc = driverLocationRef.current;
+    let originLatLng = null;
+    if (curDriverLoc) {
+      if (Array.isArray(curDriverLoc) && curDriverLoc.length >= 2) {
+        originLatLng = [curDriverLoc[1], curDriverLoc[0]];
+      } else if (curDriverLoc.latitude != null && curDriverLoc.longitude != null) {
+        originLatLng = [curDriverLoc.latitude, curDriverLoc.longitude];
       }
-
-      if (!originLatLng) {
-        originLatLng = [targetLatLng[0] - 0.015, targetLatLng[1] - 0.015];
-      }
-
-      try {
-        const routeResult = await routingService.calculateRoute(originLatLng, targetLatLng);
-        if (!isCancelled && routeResult && routeResult.coordinates && routeResult.coordinates.length) {
-          setCurrentRouteResult(routeResult);
-          setActiveRouteCoords(routeResult.coordinates);
-        }
-      } catch (err) {
-        // Fall back gracefully if offline bundle not yet downloaded on current device
-        if (!isCancelled) {
-          setCurrentRouteResult(null);
-          setActiveRouteCoords(null);
-        }
+    } else if (currentIndex > 0) {
+      const prev = stops[currentIndex - 1];
+      const prevCoords = prev.address?.location?.coordinates || prev.coordinates;
+      if (prevCoords && prevCoords.length >= 2) {
+        originLatLng = [prevCoords[1], prevCoords[0]];
       }
     }
 
-    computeLeg();
-    return () => {
-      isCancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!originLatLng) {
+      originLatLng = [targetLatLng[0] - 0.015, targetLatLng[1] - 0.015];
+    }
+
+    try {
+      const routeResult = await routingService.calculateRoute(originLatLng, targetLatLng);
+      if (routeResult && routeResult.coordinates && routeResult.coordinates.length) {
+        setCurrentRouteResult(routeResult);
+        setActiveRouteCoords(routeResult.coordinates);
+        return;
+      }
+    } catch (err) {
+      // Fallback direct navigation leg so the line between car and stop is ALWAYS rendered
+    }
+
+    // Direct line between driver and active stop (ensures line is NEVER invisible)
+    const directCoords = [
+      [originLatLng[1], originLatLng[0]],
+      [targetLatLng[1], targetLatLng[0]]
+    ];
+    setActiveRouteCoords(directCoords);
+    const distMeters = haversineDistance(originLatLng[0], originLatLng[1], targetLatLng[0], targetLatLng[1]);
+    setCurrentRouteResult({
+      coordinates: directCoords,
+      summary: {
+        length: distMeters / 1000,
+        time: Math.round(distMeters / 11.1)
+      },
+      instructions: [
+        {
+          instruction: 'Head toward destination',
+          distanceMeters: distMeters,
+          timeSeconds: Math.round(distMeters / 11.1),
+          type: 1
+        }
+      ]
+    });
+  };
+
+  useEffect(() => {
+    if (computeLegRef.current) computeLegRef.current();
   }, [currentIndex, activeStop]);
+
+  // Re-calculate route once initial GPS lock is acquired
+  useEffect(() => {
+    if (driverLocation && !hasGpsLockedRef.current) {
+      hasGpsLockedRef.current = true;
+      if (computeLegRef.current) computeLegRef.current();
+    }
+  }, [driverLocation]);
 
   // Off-route rerouting handler
   const handleRerouteNeeded = async (newStartCoords) => {

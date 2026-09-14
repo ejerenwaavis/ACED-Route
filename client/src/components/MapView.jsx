@@ -315,21 +315,30 @@ export default function MapView({
 
   // 3D Perspective Bearing-Following Camera during Active Navigation
   // Only follows if the user is NOT actively panning/exploring the map
+  const lastCameraBearingRef = useRef(0);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !isNavigating || !driverLocation || userIsPanning) return;
 
     const lng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
     const lat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
-    const bearing = (!Array.isArray(driverLocation) && driverLocation?.bearing != null) ? driverLocation.bearing : 0;
+    const speed = (!Array.isArray(driverLocation) && driverLocation?.speed != null) ? driverLocation.speed : 0;
+    const rawBearing = (!Array.isArray(driverLocation) && driverLocation?.bearing != null) ? driverLocation.bearing : null;
+
+    // Only update map camera orientation when speed is above 0.8 m/s (~1.8 mph)
+    // When stopped or moving very slowly, freeze camera bearing to eliminate spinning
+    if (rawBearing != null && !isNaN(rawBearing) && speed >= 0.8) {
+      lastCameraBearingRef.current = rawBearing;
+    }
 
     if (lng != null && lat != null && !isNaN(lng) && !isNaN(lat)) {
       map.easeTo({
         center: [lng, lat],
-        bearing: bearing,
-        pitch: 55,
+        bearing: lastCameraBearingRef.current,
+        pitch: 50,
         zoom: 17,
-        duration: 800,
+        duration: 900,
         essential: true,
       });
     }
@@ -394,7 +403,7 @@ export default function MapView({
       const validCoordCount = curStops.map(getStopCoords).filter(Boolean).length;
       if (dbg) dbg(`setup… stops:${curStops.length} valid:${validCoordCount}`);
 
-      // A. Sequence Route Line
+      // A. Sequence Route Line (connects manifest stops in sequence)
       const seqSrcOk = safeAddSource(map, 'sequence-route-source', {
         type: 'geojson',
         data: buildSequenceRouteGeoJSON(curStops)
@@ -406,15 +415,15 @@ export default function MapView({
       safeAddLayer(map, {
         id: 'sequence-route-casing', type: 'line', source: 'sequence-route-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#0369a1', 'line-width': 7, 'line-opacity': 0.35 }
+        paint: { 'line-color': '#0f172a', 'line-width': 8, 'line-opacity': 0.7 }
       });
       safeAddLayer(map, {
         id: 'sequence-route', type: 'line', source: 'sequence-route-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#38bdf8', 'line-width': 3.5, 'line-dasharray': [2, 1.5], 'line-opacity': 0.85 }
+        paint: { 'line-color': '#2676D9', 'line-width': 4.5, 'line-opacity': 0.95 }
       });
 
-      // B. Active Target Route Leg
+      // B. Active Target Route Leg (from vehicle to current stop)
       safeAddSource(map, 'active-route-source', {
         type: 'geojson',
         data: buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc)
@@ -422,12 +431,12 @@ export default function MapView({
       safeAddLayer(map, {
         id: 'active-route-casing', type: 'line', source: 'active-route-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#15803d', 'line-width': 10, 'line-opacity': 0.45 }
+        paint: { 'line-color': '#064e3b', 'line-width': 11, 'line-opacity': 0.8 }
       });
       safeAddLayer(map, {
         id: 'active-route', type: 'line', source: 'active-route-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#22c55e', 'line-width': 5.5, 'line-opacity': 1.0 }
+        paint: { 'line-color': '#22c55e', 'line-width': 6.5, 'line-opacity': 1.0 }
       });
 
       // C. Driver GPS Location Puck
@@ -767,7 +776,9 @@ export default function MapView({
     }
   }, [stops, activeIndex, selectedStopIndex, mapLoaded]);
 
-  // Update HTML Driver GPS Puck Marker
+  // Update HTML Driver GPS Puck Marker (Zero-Jitter Smooth Animation)
+  const lastDriverBearingRef = useRef(0);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
@@ -776,9 +787,15 @@ export default function MapView({
       const lng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation.longitude;
       const lat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation.latitude;
       const lngLat = [lng, lat];
-      const bearing = (driverLocation && typeof driverLocation === 'object' && !Array.isArray(driverLocation))
-        ? (driverLocation.heading ?? driverLocation.bearing ?? 0)
-        : 0;
+      const rawBearing = (driverLocation && typeof driverLocation === 'object' && !Array.isArray(driverLocation))
+        ? (driverLocation.bearing ?? driverLocation.heading)
+        : null;
+
+      // Only update heading if valid; never snap to 0 on stationary or null ticks
+      if (rawBearing != null && !isNaN(rawBearing)) {
+        lastDriverBearingRef.current = rawBearing;
+      }
+      const displayBearing = lastDriverBearingRef.current;
 
       if (!driverMarkerRef.current) {
         const el = document.createElement('div');
@@ -786,7 +803,7 @@ export default function MapView({
         const arrow = document.createElement('div');
         arrow.className = 'vehicle-marker-arrow';
         arrow.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="#2676D9"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>`;
-        arrow.style.transform = `rotate(${bearing || 0}deg)`;
+        arrow.style.transform = `rotate(${displayBearing}deg)`;
         el.appendChild(arrow);
         driverMarkerRef.current = new Marker({ element: el })
           .setLngLat(lngLat)
@@ -794,8 +811,8 @@ export default function MapView({
       } else {
         driverMarkerRef.current.setLngLat(lngLat);
         const arrowEl = driverMarkerRef.current.getElement()?.querySelector('.vehicle-marker-arrow');
-        if (arrowEl && bearing != null) {
-          arrowEl.style.transform = `rotate(${bearing}deg)`;
+        if (arrowEl) {
+          arrowEl.style.transform = `rotate(${displayBearing}deg)`;
         }
       }
     } else if (driverMarkerRef.current) {
@@ -930,39 +947,40 @@ export default function MapView({
       )}
 
       {/* MapLibre Canvas Container */}
-      <div className={`maplibre-wrapper ${isFullscreen ? 'maplibre-fullscreen' : ''}`}>
+      <div className={`maplibre-wrapper ${isFullscreen ? 'maplibre-fullscreen' : ''} ${isNavigating ? 'maplibre-navigating-active' : ''}`}>
         <div ref={mapContainerRef} className="maplibre-canvas-container" />
 
         {/* Top Status Bar Notch Scrim (ensures white battery/clock text is always crisp over map) */}
         {isFullscreen && <div className="map-notch-scrim" />}
 
-        {/* Turn-by-Turn Guidance Banner (Phase D) */}
-        {isNavigating && guidance && (
+        {/* Turn-by-Turn Guidance Banner (Phase D) - Active Header with prominent Exit button */}
+        {isNavigating && guidance && isFullscreen && (
           <TurnInstructionCard
             currentInstruction={guidance.currentInstruction}
             nextInstruction={guidance.nextInstruction}
             distanceToManeuver={guidance.distanceToManeuver}
             isRecalculating={guidance.isRecalculating}
             language={guidance.language}
+            onExit={() => {
+              if (onExitNavigation) {
+                onExitNavigation();
+              } else {
+                setIsFullscreen(false);
+              }
+            }}
           />
         )}
 
-        {/* Fullscreen Back Bar (Safe Area Top) */}
-        {isFullscreen && (
+        {/* Fullscreen Back Bar (Shown only in standard full view when NOT navigating) */}
+        {isFullscreen && !isNavigating && (
           <div className="map-fullscreen-header-bar">
             <button
-              onClick={() => {
-                if (isNavigating && onExitNavigation) {
-                  onExitNavigation();
-                } else {
-                  setIsFullscreen(false);
-                }
-              }}
+              onClick={() => setIsFullscreen(false)}
               className="map-back-btn"
-              title={isNavigating ? t('exitNav') : t('back')}
+              title={t('back')}
             >
               <ChevronLeft size={18} />
-              <span>{isNavigating ? t('exitNav') : t('back')}</span>
+              <span>{t('back')}</span>
             </button>
             {stops && stops.length > 0 && (
               <div className="header-progress-pill" style={{ padding: '0.3rem 0.65rem', zIndex: 100 }}>

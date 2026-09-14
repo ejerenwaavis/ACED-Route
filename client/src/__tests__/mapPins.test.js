@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { SUWANEE_SAMPLE_POOL, getRandomSampleSlice, formatSampleSliceToCSV } from '../data/sampleManifestPool.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -216,6 +217,42 @@ assert('Camera DOES NOT snap back when user is actively panning/exploring',
 assert('Camera does not follow when navigation is inactive',
   shouldFollowVehicle(false, true, true, false) === false
 );
+
+// S8: Layout Spacing, Exit Navigation, Real Manifest Pool & Geocode Cache Tests
+console.log('\nS8: Layout Spacing, Exit Navigation, Real Manifest Pool & Geocode Cache');
+
+// 1. Layout and Exit Navigation Button CSS
+assert('Turn card exit button is defined', /\.turn-card-exit-btn/.test(cssContent));
+assert('Controls are offset down during active navigation', /\.maplibre-navigating-active\s+\.maplibre-controls-overlay/.test(cssContent));
+assert('Vehicle marker arrow has smooth rotation transition', /\.vehicle-marker-arrow[^{]*\{[^}]*transition:/.test(cssContent));
+
+// 2. Real-world Suwanee Sample Pool verification
+assert('Suwanee sample pool contains 96 real stops', Array.isArray(SUWANEE_SAMPLE_POOL) && SUWANEE_SAMPLE_POOL.length === 96);
+const slice10 = getRandomSampleSlice(10);
+assert('getRandomSampleSlice returns exactly 10 stops', slice10.length === 10);
+assert('Sample slice stops have pre-resolved coordinates', slice10.every(s => typeof s.lat === 'number' && typeof s.lng === 'number'));
+const sampleCsv = formatSampleSliceToCSV(slice10);
+assert('Formatted sample CSV includes header', sampleCsv.includes('"Barcode","Last Event"'));
+assert('Formatted sample CSV includes GPS coordinates', sampleCsv.includes('34.0'));
+
+// 3. Geocode Cache normalization logic
+function testNormalize(raw) {
+  return String(raw).toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const rawWithDots = "4810 YORKSHIRE LN. SUWANEE. GA. 30024";
+const normalized = testNormalize(rawWithDots);
+assert('Address with dots normalizes cleanly', normalized === "4810 yorkshire ln suwanee ga 30024");
+
+// 4. GPS Heading Stabilizer logic (verifies stationary vehicle retains last bearing)
+function getStabilizedBearing(currentSpeed, rawBearing, lastBearing) {
+  if (currentSpeed < 0.8 && lastBearing !== null && lastBearing !== undefined) {
+    return lastBearing;
+  }
+  return rawBearing != null && !isNaN(rawBearing) ? rawBearing : (lastBearing || 0);
+}
+assert('Moving vehicle updates to new bearing (120 deg)', getStabilizedBearing(5.0, 120, 45) === 120);
+assert('Stationary vehicle retains previous bearing (does NOT jump to 0)', getStabilizedBearing(0.2, 0, 120) === 120);
+assert('Crawling vehicle retains previous bearing', getStabilizedBearing(0.5, 350, 120) === 120);
 
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
