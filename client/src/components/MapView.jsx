@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Map as MapLibreMap, LngLatBounds } from 'maplibre-gl';
+import { Map as MapLibreMap, Marker, LngLatBounds } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { App } from '@capacitor/app';
 import {
@@ -269,6 +269,8 @@ export default function MapView({
   driverLocationRef.current = driverLocation;
   const onSelectStopRef = useRef(onSelectStop);
   onSelectStopRef.current = onSelectStop;
+  const markersRef = useRef([]);
+  const driverMarkerRef = useRef(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedStop, setSelectedStop] = useState(null);
@@ -484,6 +486,24 @@ export default function MapView({
         map.on('mouseleave', 'stops-pin-outer', () => { map.getCanvas().style.cursor = ''; });
       }
 
+      // Explicitly move all custom overlay layers to the TOP of the layer stack so raster tiles cannot cover them
+      const overlayLayerIds = [
+        'sequence-route-casing',
+        'sequence-route',
+        'active-route-casing',
+        'active-route',
+        'driver-puck-halo',
+        'driver-puck-core',
+        'stops-active-halo',
+        'stops-pin-outer',
+        'stops-number-label'
+      ];
+      overlayLayerIds.forEach((id) => {
+        try {
+          if (map.getLayer(id)) map.moveLayer(id);
+        } catch (_) {}
+      });
+
       // Verify the critical layer truly exists before declaring success
       const confirmed = !!map.getLayer('stops-pin-outer') && !!map.getSource('stops-source');
       if (confirmed) {
@@ -540,6 +560,10 @@ export default function MapView({
     // Assign ref immediately so update effects can push data during setup
     mapRef.current = map;
 
+    map.on('error', (e) => {
+      console.warn('[MapLibre error event]:', e?.error?.message || e);
+    });
+
     // PRIMARY: load event — fires when style is applied and map canvas is ready.
     // This is the standard reliable hook for addSource/addLayer.
     map.on('load', () => {
@@ -562,12 +586,19 @@ export default function MapView({
 
     return () => {
       setDebugInfoRef.current = null;
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.remove();
+        driverMarkerRef.current = null;
+      }
       map.remove();
       mapRef.current = null;
       setMapLoaded(false);
       setDebugInfo('waiting…');
     };
   }, [activeRegion, nativePmtilesPath, offlineMode, setupLayers, mapTheme]);
+
 
 
   // Handle Fullscreen resize
@@ -644,8 +675,83 @@ export default function MapView({
     }
   }, [stops, activeIndex, activeRouteCoordinates, driverLocation, setupLayers]);
 
+  // Update HTML Stop Markers (Physically rendered in DOM layer ABOVE WebGL canvas)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    // Clear existing markers
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+
+    const curStops = stops || [];
+    curStops.forEach((stop, idx) => {
+      const coords = getStopCoords(stop);
+      if (!coords) return;
+
+      const isCurrentActive = idx === activeIndex;
+      const isSelected = idx === selectedStopIndex;
+      const isDelivered = stop.status === 'delivered';
+
+      const el = document.createElement('div');
+      el.className = `stop-marker-pin ${isCurrentActive ? 'stop-marker-active' : ''} ${
+        isDelivered ? 'stop-marker-delivered' : ''
+      } ${isSelected ? 'stop-marker-selected' : ''}`;
+      el.innerText = `${idx + 1}`;
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectedStop(stop);
+        setSelectedStopIndex(idx);
+        map.flyTo({ center: coords, zoom: 15.5, essential: true });
+        if (onSelectStopRef.current) onSelectStopRef.current(idx);
+      });
+
+      const marker = new Marker({ element: el })
+        .setLngLat(coords)
+        .addTo(map);
+
+      markersRef.current.push(marker);
+    });
+
+    if (setDebugInfoRef.current) {
+      setDebugInfoRef.current(`OK pins:true dom:${markersRef.current.length} stops:${curStops.length}`);
+    }
+  }, [stops, activeIndex, selectedStopIndex, mapLoaded]);
+
+  // Update HTML Driver GPS Puck Marker
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    if (driverLocation && (Array.isArray(driverLocation) ? driverLocation.length >= 2 : (driverLocation.longitude != null && driverLocation.latitude != null))) {
+      const lng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation.longitude;
+      const lat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation.latitude;
+      const lngLat = [lng, lat];
+
+      if (!driverMarkerRef.current) {
+        const el = document.createElement('div');
+        el.style.width = '20px';
+        el.style.height = '20px';
+        el.style.borderRadius = '50%';
+        el.style.background = '#0284c7';
+        el.style.border = '3px solid #ffffff';
+        el.style.boxShadow = '0 0 14px rgba(56, 189, 248, 0.9)';
+        el.style.willChange = 'transform';
+        driverMarkerRef.current = new Marker({ element: el })
+          .setLngLat(lngLat)
+          .addTo(map);
+      } else {
+        driverMarkerRef.current.setLngLat(lngLat);
+      }
+    } else if (driverMarkerRef.current) {
+      driverMarkerRef.current.remove();
+      driverMarkerRef.current = null;
+    }
+  }, [driverLocation, mapLoaded]);
 
   // 7. Camera Auto-framing
+
   const fitMapToBounds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;

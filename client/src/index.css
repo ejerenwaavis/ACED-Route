@@ -622,7 +622,7 @@ body {
   height: 30px;
   border-radius: 50%;
   background: #0284c7;
-  border: 2px solid #ffffff;
+  border: 2.5px solid #ffffff;
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
@@ -630,36 +630,38 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
   user-select: none;
+  /* CRITICAL: Never animate transform — MapLibre updates transform on every frame during pan */
+  transition: box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  will-change: transform;
 }
 
 .stop-marker-pin:hover {
-  transform: scale(1.2);
-  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.8);
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.9);
 }
 
 .stop-marker-active {
   background: #16a34a !important;
   border-color: #4ade80 !important;
-  width: 34px !important;
-  height: 34px !important;
+  width: 36px !important;
+  height: 36px !important;
   font-size: 13px !important;
   z-index: 25 !important;
-  animation: activeMarkerPulse 2s infinite;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.9), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
 }
 
 .stop-marker-delivered {
   background: #334155 !important;
   border-color: #64748b !important;
-  opacity: 0.7;
+  opacity: 0.75;
 }
 
 .stop-marker-selected {
-  box-shadow: 0 0 0 4px #38bdf8, 0 6px 16px rgba(0, 0, 0, 0.6) !important;
-  transform: scale(1.25) !important;
+  box-shadow: 0 0 0 4px #38bdf8, 0 6px 16px rgba(0, 0, 0, 0.7) !important;
+  border-color: #38bdf8 !important;
 }
+
 
 @keyframes activeMarkerPulse {
   0% {
