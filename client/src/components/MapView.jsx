@@ -83,7 +83,7 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
       const isSelected = idx === selectedIdx;
 
       const isDelivered = stop.status === 'delivered' || Boolean(stop.completedAt);
-      const isSkipped = stop.status === 'skipped';
+      const isSkipped = stop.status === 'skipped' || stop.status === 'attempted';
       let statusVal = stop.status || 'pending';
       if (isSkipped) statusVal = 'skipped';
       else if (isDelivered) statusVal = 'delivered';
@@ -700,7 +700,7 @@ export default function MapView({
       const isCurrentActive = idx === activeIndex;
       const isSelected = idx === selectedStopIndex;
       const isDelivered = stop.status === 'delivered' || Boolean(stop.completedAt);
-      const isSkipped = stop.status === 'skipped';
+      const isSkipped = stop.status === 'skipped' || stop.status === 'attempted';
 
       const el = document.createElement('div');
       let stateClass = 'stop-marker-standard';

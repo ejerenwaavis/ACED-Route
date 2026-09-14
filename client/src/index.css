@@ -645,7 +645,7 @@ body {
   box-shadow: 0 3px 10px rgba(38, 118, 217, 0.6);
 }
 
-/* 1. Next Stop (Target active stop): Orange filled circle, white number, active pulse */
+/* 1. Next Stop (Target active stop): Orange filled circle, white number, no shadow */
 .stop-marker-active,
 .stop-marker-next {
   background: var(--color-orange-action, #F28C28) !important;
@@ -655,8 +655,7 @@ body {
   height: 34px !important;
   font-size: 13px !important;
   z-index: 5 !important; /* Low enough to stay below controls (z-index 100) */
-  box-shadow: 0 3px 10px rgba(242, 140, 40, 0.5) !important;
-  animation: activeMarkerOrangePulse 2s infinite;
+  box-shadow: none !important;
 }
 
 /* 2. Standard / Upcoming Stop: Blue filled circle, white number */
