@@ -300,8 +300,10 @@ public class AcedRoutingPlugin extends Plugin {
         if (tts != null && ttsReady) {
             try {
                 selectBestVoice(locale);
-                float rate = (float) call.getDouble("rate", 1.0);
-                float pitch = (float) call.getDouble("pitch", 1.0);
+                Double rateVal = call.getDouble("rate");
+                float rate = rateVal != null ? rateVal.floatValue() : 1.0f;
+                Double pitchVal = call.getDouble("pitch");
+                float pitch = pitchVal != null ? pitchVal.floatValue() : 1.0f;
                 tts.setSpeechRate(rate);
                 tts.setPitch(pitch);
 
