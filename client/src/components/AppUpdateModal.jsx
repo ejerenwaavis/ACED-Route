@@ -49,10 +49,12 @@ export default function AppUpdateModal({ isOpen, onClose }) {
       const apkAsset = (data.assets || []).find((a) => a.name === 'acedroute.apk') ||
                        (data.assets || []).find((a) => a.name.endsWith('.apk'));
 
+      const assetTimestamp = apkAsset?.updated_at || apkAsset?.created_at || data.published_at || data.created_at;
+
       setReleaseInfo({
         tag: data.tag_name || 'latest-apk',
         name: data.name || 'Latest Cloud Release',
-        publishedAt: data.published_at || data.created_at,
+        publishedAt: assetTimestamp,
         downloadUrl: apkAsset ? apkAsset.browser_download_url : FALLBACK_APK_URL,
         sizeMB: apkAsset ? (apkAsset.size / (1024 * 1024)).toFixed(1) : '4.6',
         body: data.body || 'Latest production improvements and offline navigation updates.'
