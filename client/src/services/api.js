@@ -108,6 +108,18 @@ export const api = {
       body: JSON.stringify({ brandName, trackingPrefix })
     }),
 
+  // Valhalla Routing Proxies
+  calculateSequenceRoute: (stops) =>
+    request('/api/route/sequence', {
+      method: 'POST',
+      body: JSON.stringify({ stops })
+    }),
+  calculateActiveRoute: (start, end) =>
+    request('/api/route/active', {
+      method: 'POST',
+      body: JSON.stringify({ start, end })
+    }),
+
   // Offline Regions Catalog & Detection
   getRegions: () => request('/api/regions'),
   getRegion: (id) => request(`/api/regions/${id}`),
@@ -117,4 +129,6 @@ export const api = {
       body: JSON.stringify(data)
     })
 };
+
+export default api;
 

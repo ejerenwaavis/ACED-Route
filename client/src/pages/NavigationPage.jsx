@@ -37,7 +37,10 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const [notesInput, setNotesInput] = useState('');
   const [completingRoute, setCompletingRoute] = useState(false);
   const [routeFinished, setRouteFinished] = useState(false);
+  const [sequenceRouteCoords, setSequenceRouteCoords] = useState(null);
+  const [isSequenceRoadSnapped, setIsSequenceRoadSnapped] = useState(true);
   const [activeRouteCoords, setActiveRouteCoords] = useState(null);
+  const [isActiveRoadSnapped, setIsActiveRoadSnapped] = useState(true);
   const [driverLocation, setDriverLocation] = useState(null);
   const [isNavigating, setIsNavigating] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -76,6 +79,55 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     setGateInput(activeAddr.gateCode || '');
     setNotesInput(activeStop.notes || activeAddr.notes || '');
   }, [currentIndex, activeStop]);
+
+  // Calculate Road-Snapped Sequence Route across all manifest stops via Valhalla
+  useEffect(() => {
+    let isMounted = true;
+    const fetchSequenceRoute = async () => {
+      if (!stops || stops.length < 2) {
+        if (isMounted) {
+          setSequenceRouteCoords(null);
+          setIsSequenceRoadSnapped(true);
+        }
+        return;
+      }
+      const stopPoints = stops.map((s) => {
+        let coords = s.address?.location?.coordinates || s.coordinates;
+        if (!coords || coords.length < 2) {
+          coords = getCachedCoordinates(s.address?.street || s.address?.raw || s.address?.normalizedAddress || s.address);
+        }
+        if (coords && coords.length >= 2) {
+          return [coords[1], coords[0]]; // [lat, lng] for Valhalla
+        }
+        return null;
+      }).filter(Boolean);
+
+      if (stopPoints.length < 2) {
+        if (isMounted) {
+          setSequenceRouteCoords(null);
+          setIsSequenceRoadSnapped(false);
+        }
+        return;
+      }
+
+      try {
+        const result = await routingService.calculateSequenceRoute(stopPoints);
+        if (isMounted && result) {
+          setSequenceRouteCoords(result.coordinates);
+          setIsSequenceRoadSnapped(Boolean(result.isRoadSnapped));
+        }
+      } catch (err) {
+        console.warn('Sequence route calculation error:', err);
+        if (isMounted) {
+          setSequenceRouteCoords(null);
+          setIsSequenceRoadSnapped(false);
+        }
+      }
+    };
+
+    fetchSequenceRoute();
+    return () => { isMounted = false; };
+  }, [stops]);
 
   // Track Driver GPS Location with Heading Calculation & Speed Smoothing
   const lastGpsPosRef = useRef(null);
@@ -172,25 +224,21 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       if (routeResult && routeResult.coordinates && routeResult.coordinates.length) {
         setCurrentRouteResult(routeResult);
         setActiveRouteCoords(routeResult.coordinates);
+        setIsActiveRoadSnapped(Boolean(routeResult.isRoadSnapped));
         return;
       }
     } catch (err) {
-      // Fallback direct navigation leg so the line between car and stop is ALWAYS rendered
+      // Fallback offline endpoint route
     }
 
-    // Direct multi-point line between driver and active stop (ensures line is NEVER invisible)
-    const steps = 15;
-    const directCoords = [];
-    for (let i = 0; i <= steps; i++) {
-      const frac = i / steps;
-      const lat = originLatLng[0] + (targetLatLng[0] - originLatLng[0]) * frac;
-      const lng = originLatLng[1] + (targetLatLng[1] - originLatLng[1]) * frac;
-      directCoords.push([lng, lat]);
-    }
+    // Direct endpoints between driver and active stop (isRoadSnapped: false triggers dot trail)
+    const directCoords = [[originLatLng[1], originLatLng[0]], [targetLatLng[1], targetLatLng[0]]];
     setActiveRouteCoords(directCoords);
+    setIsActiveRoadSnapped(false);
     const distMeters = haversineDistance(originLatLng[0], originLatLng[1], targetLatLng[0], targetLatLng[1]);
     setCurrentRouteResult({
       coordinates: directCoords,
+      isRoadSnapped: false,
       summary: {
         length: distMeters / 1000,
         time: Math.round(distMeters / 11.1)
@@ -232,9 +280,11 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       if (routeResult && routeResult.coordinates && routeResult.coordinates.length) {
         setCurrentRouteResult(routeResult);
         setActiveRouteCoords(routeResult.coordinates);
+        setIsActiveRoadSnapped(Boolean(routeResult.isRoadSnapped));
       }
     } catch (err) {
       console.warn('Reroute calculation failed:', err);
+      setIsActiveRoadSnapped(false);
     }
   };
 
@@ -517,17 +567,23 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
         let legEtaStr = null;
         const targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
         if (targetCoords && targetCoords.length >= 2) {
+          const isApprox = !isActiveRoadSnapped;
+          const approxPrefix = isApprox ? '~' : '';
+          const approxSuffix = isApprox ? ' (approx)' : '';
+
           if (currentRouteResult?.summary?.length != null) {
             const miles = currentRouteResult.summary.length * 0.621371;
-            legDistanceStr = `${miles.toFixed(1)} mi`;
+            legDistanceStr = `${approxPrefix}${miles.toFixed(1)} mi${approxSuffix}`;
             if (currentRouteResult.summary.time != null) {
-              legEtaStr = `${Math.max(1, Math.round(currentRouteResult.summary.time / 60))} min`;
+              legEtaStr = `${approxPrefix}${Math.max(1, Math.round(currentRouteResult.summary.time / 60))} min${approxSuffix}`;
             }
-          } else if (driverLocation && driverLocation.length >= 2) {
-            const distMeters = haversineDistance(driverLocation[1], driverLocation[0], targetCoords[1], targetCoords[0]);
+          } else if (driverLocation && (Array.isArray(driverLocation) ? driverLocation.length >= 2 : (driverLocation.latitude != null && driverLocation.longitude != null))) {
+            const dlLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation.latitude;
+            const dlLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation.longitude;
+            const distMeters = haversineDistance(dlLat, dlLng, targetCoords[1], targetCoords[0]);
             const miles = distMeters * 0.000621371;
-            legDistanceStr = `${miles.toFixed(1)} mi`;
-            legEtaStr = `${Math.max(1, Math.round(miles * 2.5))} min`;
+            legDistanceStr = `~${miles.toFixed(1)} mi (approx)`;
+            legEtaStr = `~${Math.max(1, Math.round(miles * 2.5))} min (approx)`;
           }
         }
 
@@ -555,7 +611,10 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       <MapView
         stops={stops}
         activeIndex={currentIndex}
+        sequenceRouteCoordinates={sequenceRouteCoords}
+        isSequenceRoadSnapped={isSequenceRoadSnapped}
         activeRouteCoordinates={activeRouteCoords}
+        isActiveRoadSnapped={isActiveRoadSnapped}
         driverLocation={driverLocation}
         onSelectStop={(idx) => setCurrentIndex(idx)}
         onNavigateHere={(idx) => {

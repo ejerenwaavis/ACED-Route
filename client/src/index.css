@@ -1323,53 +1323,37 @@ body {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Hardware-Accelerated DOM SVG Route Lines (Guaranteed 100% Visibility)
+   Offline / Approximate Direction Badge
    ───────────────────────────────────────────────────────────────────────────── */
-.map-route-svg-overlay {
+.map-approximate-route-pill {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 95;
+  background: rgba(245, 158, 11, 0.95);
+  color: #0f172a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(8px);
   pointer-events: none;
-  z-index: 2;
-  overflow: visible;
+  white-space: nowrap;
+  text-transform: uppercase;
+  animation: pulse-badge 2s infinite ease-in-out;
 }
 
-.svg-route-seq-casing {
-  fill: none;
-  stroke: #0f172a;
-  stroke-width: 8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.75;
+.map-approximate-route-pill.navigating {
+  top: calc(env(safe-area-inset-top, 0px) + 5.25rem);
 }
 
-.svg-route-seq-line {
-  fill: none;
-  stroke: #2676D9;
-  stroke-width: 4.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.95;
-}
-
-.svg-route-act-casing {
-  fill: none;
-  stroke: #064e3b;
-  stroke-width: 11;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.85;
-}
-
-.svg-route-act-line {
-  fill: none;
-  stroke: #22c55e;
-  stroke-width: 6.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 1;
+@keyframes pulse-badge {
+  0%, 100% { opacity: 0.95; }
+  50% { opacity: 0.75; }
 }
 
 

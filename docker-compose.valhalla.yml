@@ -1,0 +1,25 @@
+﻿version: '3.8'
+
+services:
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    container_name: aced-valhalla
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      # Automatically download Georgia extract on first run and compile Valhalla routing tiles
+      - tile_urls=https://download.geofabrik.de/north-america/us/georgia-latest.osm.pbf
+      - server_threads=2
+      - build_elevation=False
+      - build_admins=True
+      - build_time_zones=True
+      - force_rebuild=False
+    volumes:
+      - ./server/valhalla_custom_files:/custom_files
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

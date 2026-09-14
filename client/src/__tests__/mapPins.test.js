@@ -15,7 +15,7 @@ function getStopCoords(stop) {
     if (lat < 0 && lng > 0) { const t = lng; lng = lat; lat = t; }
     if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) return [lng, lat];
   }
-  const obj = stop.address || stop;
+  const obj = (typeof stop.address === 'object' && stop.address !== null) ? stop.address : stop;
   const latVal = obj.latitude ?? obj.lat, lngVal = obj.longitude ?? obj.lng ?? obj.lon;
   if (latVal != null && lngVal != null) {
     let lat = parseFloat(latVal), lng = parseFloat(lngVal);
@@ -365,8 +365,10 @@ assert('Initial basemap layer registered', mockMap._layerOrder[0] === 'esri-stre
 const testOverlays = [
   'sequence-route-casing',
   'sequence-route',
+  'sequence-route-approximate-dots',
   'active-route-casing',
   'active-route',
+  'active-route-approximate-dots',
   'driver-puck-halo',
   'driver-puck-core',
   'stops-active-halo',
@@ -375,10 +377,10 @@ const testOverlays = [
 ];
 
 testOverlays.forEach(id => {
-  addOverlayLayer(mockMap, { id, type: id.includes('route') ? 'line' : (id.includes('label') ? 'symbol' : 'circle') });
+  addOverlayLayer(mockMap, { id, type: id.includes('route') ? (id.includes('dots') ? 'circle' : 'line') : (id.includes('label') ? 'symbol' : 'circle') });
 });
 
-assert('All 9 custom overlay layers are positioned AFTER/ABOVE the raster layer',
+assert('All 11 custom overlay layers are positioned AFTER/ABOVE the raster layer',
   testOverlays.every(id => mockMap._layerOrder.indexOf(id) > mockMap._layerOrder.indexOf('esri-street-layer'))
 );
 assert('Raster basemap remains at index 0 (bottom)', mockMap._layerOrder[0] === 'esri-street-layer');
@@ -439,44 +441,175 @@ assert('AppUpdateModal contains What\'s New card', updateModalCode.includes("Wha
 assert('AppUpdateModal contains What\'s Improved checklist', updateModalCode.includes("What's Improved"));
 assert('AppUpdateModal retains ACED Route branding (not YURI)', !updateModalCode.includes('YURI'));
 
-// S14: SVG Polyline Overlay & Stacking Collision Prevention
-console.log('\nS14: SVG Polyline Overlay & Stacking Collision Prevention');
+// S14: Road-Following Route Lines via Valhalla & Pure WebGL Dot-Trail Fallback
+console.log('\nS14: Road-Following Route Lines via Valhalla & Pure WebGL Dot-Trail Fallback');
 
-// CSS presence checks
-assert('CSS defines map-route-svg-overlay', /\.map-route-svg-overlay/.test(cssContent));
-assert('SVG overlay is layered at z-index 2 (above canvas, below pins)', /\.map-route-svg-overlay[^{]*\{[^}]*z-index:\s*2/.test(cssContent));
-assert('CSS defines blue sequence route line (#2676D9)', /\.svg-route-seq-line[^{]*\{[^}]*#2676D9/.test(cssContent));
-assert('CSS defines sequence line casing (#0f172a)', /\.svg-route-seq-casing[^{]*\{[^}]*#0f172a/.test(cssContent));
-assert('CSS defines green active route line (#22c55e)', /\.svg-route-act-line[^{]*\{[^}]*#22c55e/.test(cssContent));
-assert('CSS defines active line casing (#064e3b)', /\.svg-route-act-casing[^{]*\{[^}]*#064e3b/.test(cssContent));
-
-// Navigation HUD and Street Pill spacing checks
-assert('CSS defines map-debug-hud-navigating with safe-area offset', /\.map-debug-hud-pill\.map-debug-hud-navigating[^{]*\{[^}]*safe-area-inset-top/.test(cssContent));
-assert('CSS defines floating-street-pill-above-chip with vertical clearance', /\.floating-street-pill-container\.floating-street-pill-above-chip[^{]*\{[^}]*6\.25rem/.test(cssContent));
-
-// Mock SVG projection test
-function mockProjectCoord([lng, lat]) {
-  return {
-    x: ((lng + 85) * 500).toFixed(1),
-    y: ((35 - lat) * 500).toFixed(1)
-  };
+// 1. Bitwise Polyline6 Decoder test
+function decodePolyline6(encoded) {
+  const coords = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+    shift = 0; result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+    coords.push([Number((lng * 1e-6).toFixed(6)), Number((lat * 1e-6).toFixed(6))]);
+  }
+  return coords;
 }
 
-const testSampleStops = getRandomSampleSlice(10);
-let mockSeqD = '';
-for (let i = 0; i < testSampleStops.length; i++) {
-  const pt = mockProjectCoord([testSampleStops[i].lng, testSampleStops[i].lat]);
-  mockSeqD += (i === 0 ? 'M ' : ' L ') + `${pt.x},${pt.y}`;
-}
-assert('Projected SVG sequence path has valid M ... L commands', mockSeqD.startsWith('M ') && mockSeqD.includes(' L '));
-assert('Projected SVG path has 10 waypoints for 10 stops', (mockSeqD.match(/L/g) || []).length === 9);
+// Test polyline: 2 points around Atlanta metro
+const samplePolyline = "_ib_El~ybOmhDve@";
+const decodedPts = decodePolyline6(samplePolyline);
+assert('Bitwise polyline6 decodes coordinates with 1e-6 precision', decodedPts.length > 0 && typeof decodedPts[0][0] === 'number');
 
-// MapView code inspection check: ensure styledata recursive listener is gone
+// 2. Strict No-Line Rule & Pure WebGL Dot-Trail Fallback test
+function testBuildSequenceRoute(stopsList, sequenceCoords, isRoadSnapped) {
+  if (!isRoadSnapped) return { type: 'FeatureCollection', features: [] };
+  if (sequenceCoords && sequenceCoords.length >= 2) {
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: sequenceCoords }, properties: {} }] };
+  }
+  const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
+  if (validCoords.length < 2) return { type: 'FeatureCollection', features: [] };
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: validCoords }, properties: {} }] };
+}
+
+function testBuildSequenceDotTrail(stopsList, isRoadSnapped) {
+  if (isRoadSnapped) return { type: 'FeatureCollection', features: [] };
+  const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
+  if (validCoords.length < 2) return { type: 'FeatureCollection', features: [] };
+  const features = [];
+  for (let i = 0; i < validCoords.length - 1; i++) {
+    const p1 = validCoords[i];
+    const p2 = validCoords[i + 1];
+    const count = 10;
+    for (let s = 1; s <= count; s++) {
+      const frac = s / (count + 1);
+      const lng = p1[0] + (p2[0] - p1[0]) * frac;
+      const lat = p1[1] + (p2[1] - p1[1]) * frac;
+      features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: { segmentIndex: i } });
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+function testBuildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driverLoc, isRoadSnapped) {
+  if (!isRoadSnapped) return { type: 'FeatureCollection', features: [] };
+  let coords = null;
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  const hasDriverLoc = dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat);
+
+  if (activeRouteCoords && activeRouteCoords.length > 1) {
+    coords = activeRouteCoords.map(pt => [...pt]);
+    if (hasDriverLoc && coords.length > 0) coords[0] = [dlLng, dlLat];
+  }
+  if (coords && coords.length >= 2) {
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }] };
+  }
+  return { type: 'FeatureCollection', features: [] };
+}
+
+function testBuildDotTrail(driverLoc, targetCoords, isRoadSnapped) {
+  if (isRoadSnapped) return { type: 'FeatureCollection', features: [] };
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  if (dlLng == null || dlLat == null || isNaN(dlLng) || isNaN(dlLat) || !targetCoords || targetCoords.length < 2) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const tLng = targetCoords[0];
+  const tLat = targetCoords[1];
+  const count = 16;
+  const features = [];
+  for (let s = 1; s <= count; s++) {
+    const frac = s / (count + 1);
+    const lng = dlLng + (tLng - dlLng) * frac;
+    const lat = dlLat + (tLat - dlLat) * frac;
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: {} });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// Scenario: Road-Snapped Sequence Route (Online / Cached)
+const snappedSeq = testBuildSequenceRoute(slice10, null, true);
+const snappedSeqDots = testBuildSequenceDotTrail(slice10, true);
+assert('Road-snapped sequence route produces LineString feature', snappedSeq.features.length === 1 && snappedSeq.features[0].geometry.type === 'LineString');
+assert('Road-snapped sequence route generates zero dot features (clean asphalt lines)', snappedSeqDots.features.length === 0);
+
+// Scenario: Approximate Sequence Route (Offline / Cache Miss) -> NO LINES, ONLY DOTS
+const approxSeq = testBuildSequenceRoute(slice10, null, false);
+const approxSeqDots = testBuildSequenceDotTrail(slice10, false);
+assert('STRICT: Approximate sequence route produces ZERO line features (NO straight lines)', approxSeq.features.length === 0);
+assert('Approximate sequence route generates circle point dot trail across stop pairs', approxSeqDots.features.length === 90);
+
+// Scenario: Active Target Leg Road-Snapped vs Approximate
+const testDriver = [-84.148, 34.090];
+const testTarget = [-84.0844, 34.0321];
+const testPolylineCoords = [[-84.148, 34.090], [-84.110, 34.050], [-84.0844, 34.0321]];
+
+const snappedAct = testBuildActiveRouteGeoJSON(slice10, 0, testPolylineCoords, testDriver, true);
+const snappedActDots = testBuildDotTrail(testDriver, testTarget, true);
+assert('Road-snapped active route produces LineString feature', snappedAct.features.length === 1 && snappedAct.features[0].geometry.type === 'LineString');
+assert('Road-snapped active route generates zero dot features', snappedActDots.features.length === 0);
+
+const approxAct = testBuildActiveRouteGeoJSON(slice10, 0, testPolylineCoords, testDriver, false);
+const approxActDots = testBuildDotTrail(testDriver, testTarget, false);
+assert('STRICT: Approximate active route produces ZERO line features (NO straight lines)', approxAct.features.length === 0);
+assert('Approximate active route generates 16 circle point dots to target', approxActDots.features.length === 16);
+
+// 3. Approximate Distance and ETA String Formatting
+function formatDistanceAndEta(miles, timeSec, isRoadSnapped) {
+  const isApprox = !isRoadSnapped;
+  const approxPrefix = isApprox ? '~' : '';
+  const approxSuffix = isApprox ? ' (approx)' : '';
+  const distStr = `${approxPrefix}${miles.toFixed(1)} mi${approxSuffix}`;
+  const etaMin = Math.max(1, Math.round((timeSec || (miles * 150)) / 60));
+  const etaStr = `${approxPrefix}${etaMin} min${approxSuffix}`;
+  return { distStr, etaStr };
+}
+
+const roadSnappedText = formatDistanceAndEta(3.2, 300, true);
+assert('Road-snapped distance formatted cleanly without approx badge', roadSnappedText.distStr === '3.2 mi' && roadSnappedText.etaStr === '5 min');
+
+const approxText = formatDistanceAndEta(3.2, 300, false);
+assert('Approximate distance prepends ~ and appends (approx)', approxText.distStr === '~3.2 mi (approx)');
+assert('Approximate ETA prepends ~ and appends (approx)', approxText.etaStr === '~5 min (approx)');
+
+// 4. CSS Badge and HUD Spacing Checks
+assert('CSS defines map-approximate-route-pill', /\.map-approximate-route-pill/.test(cssContent));
+assert('CSS defines map-approximate-route-pill.navigating with safe-area offset', /\.map-approximate-route-pill\.navigating[^{]*\{[^}]*safe-area-inset-top/.test(cssContent));
+assert('CSS defines pulse-badge animation for offline pill', /@keyframes\s+pulse-badge/.test(cssContent));
+assert('CSS has retired old DOM SVG route overlay', !cssContent.includes('.map-route-svg-overlay'));
+
+// 5. MapView Architectural Verification
 const mapViewCode = fs.readFileSync(path.join(__dirname, '../components/MapView.jsx'), 'utf8');
 assert('MapView has removed recursive styledata listener', !mapViewCode.includes("map.on('styledata'"));
-assert('MapView exports getOrCreateSvgOverlay', mapViewCode.includes('export function getOrCreateSvgOverlay'));
-assert('MapView exports updateSvgOverlayPaths', mapViewCode.includes('export function updateSvgOverlayPaths'));
-assert('MapView hooks SVG overlay to map render and move events', mapViewCode.includes("map.on('render', handleSyncSvg)") && mapViewCode.includes("map.on('move', handleSyncSvg)"));
+assert('MapView has removed DOM SVG overlay references', !mapViewCode.includes('map-route-svg-overlay'));
+assert('MapView hooks one-shot map.on("style.load")', mapViewCode.includes("map.on('style.load'"));
+assert('MapView exports buildSequenceRouteGeoJSON', mapViewCode.includes('export function buildSequenceRouteGeoJSON'));
+assert('MapView exports buildSequenceDotTrailGeoJSON', mapViewCode.includes('export function buildSequenceDotTrailGeoJSON'));
+assert('MapView exports buildActiveRouteGeoJSON', mapViewCode.includes('export function buildActiveRouteGeoJSON'));
+assert('MapView exports buildDotTrailGeoJSON', mapViewCode.includes('export function buildDotTrailGeoJSON'));
+assert('MapView defines approximate badge pill', mapViewCode.includes('map-approximate-route-pill'));
+assert('OVERLAY_LAYER_IDS includes dot-trail circle layers', mapViewCode.includes('sequence-route-approximate-dots') && mapViewCode.includes('active-route-approximate-dots'));
+
+// 6. Server Route Module Architecture Checks
+const serverRoutePath = path.join(__dirname, '../../../server/routes/route.js');
+const serverRouteCode = fs.readFileSync(serverRoutePath, 'utf8');
+assert('Server route module includes bitwise decodePolyline6', serverRouteCode.includes('function decodePolyline6'));
+assert('Server route module protects endpoints with requireAuth JWT middleware', serverRouteCode.includes('router.use(requireAuth)'));
+assert('Server route module defines POST /sequence', serverRouteCode.includes("router.post('/sequence'"));
+assert('Server route module defines POST /active', serverRouteCode.includes("router.post('/active'"));
 
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');

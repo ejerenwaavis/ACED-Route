@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const brandRoutes = require('./routes/brand');
 const manifestRoutes = require('./routes/manifest');
 const regionsRoutes = require('./routes/regions');
+const routeRoutes = require('./routes/route');
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/brand', brandRoutes);
 app.use('/api/manifest', manifestRoutes);
 app.use('/api/regions', regionsRoutes);
+app.use('/api/route', routeRoutes);
 app.get('/api/health', (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
 // Support sub-path mounting (e.g. /acedroute on shared cPanel domain)
@@ -31,6 +33,7 @@ app.use(`${baseUri}/api/auth`, authRoutes);
 app.use(`${baseUri}/api/brand`, brandRoutes);
 app.use(`${baseUri}/api/manifest`, manifestRoutes);
 app.use(`${baseUri}/api/regions`, regionsRoutes);
+app.use(`${baseUri}/api/route`, routeRoutes);
 app.get(`${baseUri}/api/health`, (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
 // Serve offline map region bundles (.zip, .pmtiles)

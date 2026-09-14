@@ -59,7 +59,7 @@ function getStopCoords(stop) {
   }
 
   // 2. Object latitude/longitude fields
-  const obj = stop.address || stop;
+  const obj = (typeof stop.address === 'object' && stop.address !== null) ? stop.address : stop;
   const latVal = obj.latitude ?? obj.lat;
   const lngVal = obj.longitude ?? obj.lng ?? obj.lon;
   if (latVal != null && lngVal != null) {
@@ -136,8 +136,27 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
 
 /**
  * Builds standard GeoJSON FeatureCollection LineString connecting all manifest stops in sequence.
+ * STRICT: Returns empty features when isRoadSnapped === false (no straight stick lines).
  */
-function buildSequenceRouteGeoJSON(stopsList) {
+export function buildSequenceRouteGeoJSON(stopsList, sequenceCoords = null, isRoadSnapped = true) {
+  if (!isRoadSnapped) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  if (sequenceCoords && sequenceCoords.length >= 2) {
+    return {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: sequenceCoords
+          },
+          properties: {}
+        }
+      ]
+    };
+  }
   const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
   if (validCoords.length < 2) {
     return { type: 'FeatureCollection', features: [] };
@@ -158,10 +177,50 @@ function buildSequenceRouteGeoJSON(stopsList) {
 }
 
 /**
- * Builds standard GeoJSON FeatureCollection LineString for active target route leg.
- * Guarantees connection to vehicle location and multi-point geodesic density.
+ * Builds standard GeoJSON FeatureCollection Points for approximate dot-trail across manifest stops.
+ * Rendered ONLY when isRoadSnapped === false.
  */
-function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driverLoc) {
+export function buildSequenceDotTrailGeoJSON(stopsList, isRoadSnapped = true) {
+  if (isRoadSnapped) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
+  if (validCoords.length < 2) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const features = [];
+  for (let i = 0; i < validCoords.length - 1; i++) {
+    const p1 = validCoords[i];
+    const p2 = validCoords[i + 1];
+    const count = 10;
+    for (let s = 1; s <= count; s++) {
+      const frac = s / (count + 1);
+      const lng = p1[0] + (p2[0] - p1[0]) * frac;
+      const lat = p1[1] + (p2[1] - p1[1]) * frac;
+      features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [lng, lat]
+        },
+        properties: { segmentIndex: i }
+      });
+    }
+  }
+  return {
+    type: 'FeatureCollection',
+    features
+  };
+}
+
+/**
+ * Builds standard GeoJSON FeatureCollection LineString for active target route leg.
+ * STRICT: Returns empty features when isRoadSnapped === false (no straight stick lines).
+ */
+export function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driverLoc, isRoadSnapped = true) {
+  if (!isRoadSnapped) {
+    return { type: 'FeatureCollection', features: [] };
+  }
   let coords = null;
   const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
   const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
@@ -172,32 +231,6 @@ function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driver
     // Snap route head directly to vehicle location so line is never disconnected
     if (hasDriverLoc && coords.length > 0) {
       coords[0] = [dlLng, dlLat];
-    }
-  } else if (Array.isArray(stopsList) && stopsList.length > 0) {
-    const targetStop = stopsList[activeIdx];
-    const targetCoords = getStopCoords(targetStop);
-    if (targetCoords) {
-      let originCoords = null;
-      if (hasDriverLoc) {
-        originCoords = [dlLng, dlLat];
-      } else if (activeIdx > 0) {
-        originCoords = getStopCoords(stopsList[activeIdx - 1]);
-      } else if (stopsList.length > 1) {
-        originCoords = getStopCoords(stopsList[1]);
-      }
-
-      if (originCoords && (originCoords[0] !== targetCoords[0] || originCoords[1] !== targetCoords[1])) {
-        // High-density geodesic interpolation (15 vertices) ensuring lines are visible at every zoom level
-        const steps = 15;
-        const interpolated = [];
-        for (let i = 0; i <= steps; i++) {
-          const frac = i / steps;
-          const lat = originCoords[1] + (targetCoords[1] - originCoords[1]) * frac;
-          const lng = originCoords[0] + (targetCoords[0] - originCoords[0]) * frac;
-          interpolated.push([lng, lat]);
-        }
-        coords = interpolated;
-      }
     }
   }
 
@@ -218,6 +251,42 @@ function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driver
   }
 
   return { type: 'FeatureCollection', features: [] };
+}
+
+/**
+ * Builds standard GeoJSON FeatureCollection Points for approximate dot-trail to active destination.
+ * Rendered ONLY when isRoadSnapped === false.
+ */
+export function buildDotTrailGeoJSON(driverLoc, targetCoords, isRoadSnapped = true) {
+  if (isRoadSnapped) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  if (dlLng == null || dlLat == null || isNaN(dlLng) || isNaN(dlLat) || !targetCoords || targetCoords.length < 2) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const tLng = targetCoords[0];
+  const tLat = targetCoords[1];
+  const count = 16;
+  const features = [];
+  for (let s = 1; s <= count; s++) {
+    const frac = s / (count + 1);
+    const lng = dlLng + (tLng - dlLng) * frac;
+    const lat = dlLat + (tLat - dlLat) * frac;
+    features.push({
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [lng, lat]
+      },
+      properties: {}
+    });
+  }
+  return {
+    type: 'FeatureCollection',
+    features
+  };
 }
 
 /**
@@ -268,8 +337,10 @@ function safeAddSource(map, id, sourceDef) {
 export const OVERLAY_LAYER_IDS = [
   'sequence-route-casing',
   'sequence-route',
+  'sequence-route-approximate-dots',
   'active-route-casing',
   'active-route',
+  'active-route-approximate-dots',
   'driver-puck-halo',
   'driver-puck-core',
   'stops-active-halo',
@@ -308,102 +379,16 @@ function ensureOverlaysOnTop(map) {
   });
 }
 
-/**
- * Ensures a hardware-accelerated SVG overlay is mounted inside map.getCanvasContainer()
- * directly on top of the WebGL canvas, but strictly underneath DOM HTML markers (z-index 2).
- */
-export function getOrCreateSvgOverlay(map) {
-  if (!map) return null;
-  const container = typeof map.getCanvasContainer === 'function' ? map.getCanvasContainer() : null;
-  if (!container) return null;
-
-  let svg = container.querySelector('.map-route-svg-overlay');
-  if (!svg) {
-    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('class', 'map-route-svg-overlay');
-    svg.setAttribute('aria-hidden', 'true');
-
-    // Sequence route casing & line (connecting stops in blue)
-    const seqCasing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    seqCasing.setAttribute('class', 'svg-route-seq-casing');
-    const seqLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    seqLine.setAttribute('class', 'svg-route-seq-line');
-
-    // Active route casing & line (from vehicle to current stop in green)
-    const actCasing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    actCasing.setAttribute('class', 'svg-route-act-casing');
-    const actLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    actLine.setAttribute('class', 'svg-route-act-line');
-
-    svg.appendChild(seqCasing);
-    svg.appendChild(seqLine);
-    svg.appendChild(actCasing);
-    svg.appendChild(actLine);
-
-    // Insert directly after canvas so it is below any DOM markers
-    const canvas = typeof map.getCanvas === 'function' ? map.getCanvas() : null;
-    if (canvas && canvas.nextSibling) {
-      container.insertBefore(svg, canvas.nextSibling);
-    } else {
-      container.appendChild(svg);
-    }
-  }
-  return svg;
-}
-
-/**
- * Projects GeoJSON coordinates into SVG path 'd' attributes with sub-pixel precision.
- * Runs on every map move, zoom, and render frame at 60fps.
- */
-export function updateSvgOverlayPaths(map, curStops, curActiveIdx, curRouteCoords, curDriverLoc) {
-  if (!map) return;
-  const svg = getOrCreateSvgOverlay(map);
-  if (!svg) return;
-
-  const seqCasing = svg.querySelector('.svg-route-seq-casing');
-  const seqLine = svg.querySelector('.svg-route-seq-line');
-  const actCasing = svg.querySelector('.svg-route-act-casing');
-  const actLine = svg.querySelector('.svg-route-act-line');
-
-  // 1. Sequence Route: connects manifest stops in sequence (Blue)
-  const validCoords = (curStops || []).map(getStopCoords).filter(Boolean);
-  let seqD = '';
-  if (validCoords.length >= 2) {
-    for (let i = 0; i < validCoords.length; i++) {
-      try {
-        const pt = map.project(validCoords[i]);
-        seqD += (i === 0 ? 'M ' : ' L ') + `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
-      } catch (_) {}
-    }
-  }
-  if (seqCasing) seqCasing.setAttribute('d', seqD);
-  if (seqLine) seqLine.setAttribute('d', seqD);
-
-  // 2. Active Target Route Leg: vehicle to current stop (Green)
-  const activeGeo = buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc);
-  const actCoords = activeGeo?.features?.[0]?.geometry?.coordinates || [];
-  let actD = '';
-  if (actCoords.length >= 2) {
-    for (let i = 0; i < actCoords.length; i++) {
-      try {
-        const pt = map.project(actCoords[i]);
-        actD += (i === 0 ? 'M ' : ' L ') + `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
-      } catch (_) {}
-    }
-  }
-  if (actCasing) actCasing.setAttribute('d', actD);
-  if (actLine) actLine.setAttribute('d', actD);
-}
-
 // Backward compatibility alias for any existing callers
 const safeAddLayer = addOverlayLayer;
-
-
 
 export default function MapView({
   stops = [],
   activeIndex = 0,
+  sequenceRouteCoordinates = null,
+  isSequenceRoadSnapped = true,
   activeRouteCoordinates = null,
+  isActiveRoadSnapped = true,
   driverLocation = null,
   onSelectStop,
   onNavigateHere,
@@ -424,8 +409,14 @@ export default function MapView({
   stopsRef.current = stops;
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
+  const sequenceRouteCoordsRef = useRef(sequenceRouteCoordinates);
+  sequenceRouteCoordsRef.current = sequenceRouteCoordinates;
+  const isSequenceRoadSnappedRef = useRef(isSequenceRoadSnapped);
+  isSequenceRoadSnappedRef.current = isSequenceRoadSnapped;
   const activeRouteCoordsRef = useRef(activeRouteCoordinates);
   activeRouteCoordsRef.current = activeRouteCoordinates;
+  const isActiveRoadSnappedRef = useRef(isActiveRoadSnapped);
+  isActiveRoadSnappedRef.current = isActiveRoadSnapped;
   const driverLocationRef = useRef(driverLocation);
   driverLocationRef.current = driverLocation;
   const onSelectStopRef = useRef(onSelectStop);
@@ -566,10 +557,10 @@ export default function MapView({
       const validCoordCount = curStops.map(getStopCoords).filter(Boolean).length;
       if (dbg) dbg(`setup… stops:${curStops.length} valid:${validCoordCount}`);
 
-      // A. Sequence Route Line (connects manifest stops in sequence)
+      // A. Sequence Route Line & Approximate Dot-Trail
       const seqSrcOk = safeAddSource(map, 'sequence-route-source', {
         type: 'geojson',
-        data: buildSequenceRouteGeoJSON(curStops)
+        data: buildSequenceRouteGeoJSON(curStops, sequenceRouteCoordsRef.current, isSequenceRoadSnappedRef.current)
       });
       if (!seqSrcOk) {
         if (dbg) dbg(`ERR: seq-route-source failed — map not ready`);
@@ -586,10 +577,27 @@ export default function MapView({
         paint: { 'line-color': '#2676D9', 'line-width': 4.5, 'line-opacity': 0.95 }
       });
 
-      // B. Active Target Route Leg (from vehicle to current stop)
+      safeAddSource(map, 'sequence-dots-source', {
+        type: 'geojson',
+        data: buildSequenceDotTrailGeoJSON(curStops, isSequenceRoadSnappedRef.current)
+      });
+      safeAddLayer(map, {
+        id: 'sequence-route-approximate-dots',
+        type: 'circle',
+        source: 'sequence-dots-source',
+        paint: {
+          'circle-radius': 3.5,
+          'circle-color': '#64748b',
+          'circle-opacity': 0.85,
+          'circle-stroke-width': 1.0,
+          'circle-stroke-color': '#334155'
+        }
+      });
+
+      // B. Active Target Route Leg & Approximate Dot-Trail
       safeAddSource(map, 'active-route-source', {
         type: 'geojson',
-        data: buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc)
+        data: buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc, isActiveRoadSnappedRef.current)
       });
       safeAddLayer(map, {
         id: 'active-route-casing', type: 'line', source: 'active-route-source',
@@ -600,6 +608,25 @@ export default function MapView({
         id: 'active-route', type: 'line', source: 'active-route-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#22c55e', 'line-width': 6.5, 'line-opacity': 1.0 }
+      });
+
+      const activeTargetStop = curStops && curStops[curActiveIdx];
+      const activeTargetCoords = getStopCoords(activeTargetStop);
+      safeAddSource(map, 'active-dots-source', {
+        type: 'geojson',
+        data: buildDotTrailGeoJSON(curDriverLoc, activeTargetCoords, isActiveRoadSnappedRef.current)
+      });
+      safeAddLayer(map, {
+        id: 'active-route-approximate-dots',
+        type: 'circle',
+        source: 'active-dots-source',
+        paint: {
+          'circle-radius': 4.5,
+          'circle-color': '#F28C28',
+          'circle-opacity': 0.95,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#ffffff'
+        }
       });
 
       // C. Driver GPS Location Puck
@@ -687,8 +714,8 @@ export default function MapView({
       // Explicitly move all custom overlay layers to the TOP of the layer stack so raster tiles cannot cover them
       ensureOverlaysOnTop(map);
 
-      const seqGeoJSON = buildSequenceRouteGeoJSON(curStops);
-      const activeGeoJSON = buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc);
+      const seqGeoJSON = buildSequenceRouteGeoJSON(curStops, sequenceRouteCoordsRef.current, isSequenceRoadSnappedRef.current);
+      const activeGeoJSON = buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc, isActiveRoadSnappedRef.current);
       const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
       const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
 
@@ -761,22 +788,6 @@ export default function MapView({
     map.on('rotatestart', handleUserMapInteraction);
     map.on('pitchstart', handleUserMapInteraction);
 
-    // Synchronize DOM SVG overlay paths on every camera frame at 60fps
-    const handleSyncSvg = () => {
-      updateSvgOverlayPaths(
-        map,
-        stopsRef.current,
-        activeIndexRef.current,
-        activeRouteCoordsRef.current,
-        driverLocationRef.current
-      );
-    };
-
-    map.on('render', handleSyncSvg);
-    map.on('move', handleSyncSvg);
-    map.on('zoom', handleSyncSvg);
-    map.on('resize', handleSyncSvg);
-
     // PRIMARY: load event — fires when style is applied and map canvas is ready.
     // This is the standard reliable hook for addSource/addLayer.
     map.on('load', () => {
@@ -786,6 +797,11 @@ export default function MapView({
         // PRIMARY failed — schedule idle fallback
         setDebugInfo('load: setup failed → waiting idle…');
       }
+    });
+
+    // One-shot style.load fires on style reloads or theme swaps
+    map.on('style.load', () => {
+      setupLayers(map);
     });
 
     // DEFINITIVE FALLBACK: idle fires after all tiles are loaded and the map is fully
@@ -799,10 +815,6 @@ export default function MapView({
 
     return () => {
       setDebugInfoRef.current = null;
-      map.off('render', handleSyncSvg);
-      map.off('move', handleSyncSvg);
-      map.off('zoom', handleSyncSvg);
-      map.off('resize', handleSyncSvg);
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       if (driverMarkerRef.current) {
@@ -870,13 +882,14 @@ export default function MapView({
     }
   }, [driverLocation, setupLayers]);
 
-  // Update Polylines: Sequence Route (Blue) & Active Route (Green)
+  // Update Polylines: Sequence Route (Blue) & Active Route (Green) or Approximate Dot-Trails
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     try {
-      const seqGeoJSON = buildSequenceRouteGeoJSON(stops);
+      // 1. Sequence Route (Road-snapped or dots)
+      const seqGeoJSON = buildSequenceRouteGeoJSON(stops, sequenceRouteCoordinates, isSequenceRoadSnapped);
       const seqSource = map.getSource('sequence-route-source');
       if (seqSource) {
         seqSource.setData(seqGeoJSON);
@@ -884,25 +897,39 @@ export default function MapView({
         setupLayers(map);
       }
 
-      const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation);
+      const seqDotsGeoJSON = buildSequenceDotTrailGeoJSON(stops, isSequenceRoadSnapped);
+      const seqDotsSource = map.getSource('sequence-dots-source');
+      if (seqDotsSource) {
+        seqDotsSource.setData(seqDotsGeoJSON);
+      }
+
+      // 2. Active Target Leg (Road-snapped or dots)
+      const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
       const activeSource = map.getSource('active-route-source');
       if (activeSource) {
         activeSource.setData(activeGeoJSON);
       }
 
-      // Synchronize hardware-accelerated DOM SVG route lines
-      updateSvgOverlayPaths(map, stops, activeIndex, activeRouteCoordinates, driverLocation);
+      const activeTargetStop = stops && stops[activeIndex];
+      const activeTargetCoords = getStopCoords(activeTargetStop);
+      const activeDotsGeoJSON = buildDotTrailGeoJSON(driverLocation, activeTargetCoords, isActiveRoadSnapped);
+      const activeDotsSource = map.getSource('active-dots-source');
+      if (activeDotsSource) {
+        activeDotsSource.setData(activeDotsGeoJSON);
+      }
 
       const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
       const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
+      const seqDotsCount = seqDotsGeoJSON.features?.length || 0;
+      const actDotsCount = activeDotsGeoJSON.features?.length || 0;
 
       if (setDebugInfoRef.current) {
-        setDebugInfoRef.current(`pins:true dom:${markersRef.current?.length || 0} stops:${stops?.length || 0} lines:{sequence:${seqCoordsCount}, active:${actCoordsCount}}`);
+        setDebugInfoRef.current(`pins:true dom:${markersRef.current?.length || 0} stops:${stops?.length || 0} lines:{seq:${seqCoordsCount}(dots:${seqDotsCount}), act:${actCoordsCount}(dots:${actDotsCount})}`);
       }
     } catch (err) {
-      console.warn('[MapView] Failed to update route polylines:', err);
+      console.warn('[MapView] Failed to update route polylines/dots:', err);
     }
-  }, [stops, activeIndex, activeRouteCoordinates, driverLocation, setupLayers]);
+  }, [stops, activeIndex, sequenceRouteCoordinates, isSequenceRoadSnapped, activeRouteCoordinates, isActiveRoadSnapped, driverLocation, setupLayers]);
 
   // Update HTML Stop Markers (Physically rendered in DOM layer ABOVE WebGL canvas)
   useEffect(() => {
@@ -956,15 +983,15 @@ export default function MapView({
       markersRef.current.push(marker);
     });
 
-    const seqGeoJSON = buildSequenceRouteGeoJSON(curStops);
-    const activeGeoJSON = buildActiveRouteGeoJSON(curStops, activeIndex, activeRouteCoordinates, driverLocation);
+    const seqGeoJSON = buildSequenceRouteGeoJSON(curStops, sequenceRouteCoordinates, isSequenceRoadSnapped);
+    const activeGeoJSON = buildActiveRouteGeoJSON(curStops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
     const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
     const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
 
     if (setDebugInfoRef.current) {
-      setDebugInfoRef.current(`pins:true dom:${markersRef.current.length} stops:${curStops.length} lines:{sequence:${seqCoordsCount}, active:${actCoordsCount}}`);
+      setDebugInfoRef.current(`pins:true dom:${markersRef.current.length} stops:${curStops.length} lines:{seq:${seqCoordsCount}, act:${actCoordsCount}}`);
     }
-  }, [stops, activeIndex, selectedStopIndex, mapLoaded, activeRouteCoordinates, driverLocation]);
+  }, [stops, activeIndex, selectedStopIndex, mapLoaded, sequenceRouteCoordinates, isSequenceRoadSnapped, activeRouteCoordinates, isActiveRoadSnapped, driverLocation]);
 
   // Update HTML Driver GPS Puck Marker (Zero-Jitter Smooth Animation)
   const lastDriverBearingRef = useRef(0);
@@ -1208,6 +1235,13 @@ export default function MapView({
           </div>
         )}
 
+        {/* Offline / Approximate Route Direction Pill */}
+        {((!isActiveRoadSnapped && isNavigating) || (!isSequenceRoadSnapped && stops && stops.length > 1)) && (
+          <div className={`map-approximate-route-pill ${isNavigating ? 'navigating' : ''}`}>
+            Offline — Approximate Direction Only
+          </div>
+        )}
+
         {/* Always-visible live diagnostic HUD */}
         <div className={`map-debug-hud-pill ${isNavigating ? 'map-debug-hud-navigating' : ''}`}>
           <span>{debugInfo}</span>
@@ -1274,8 +1308,11 @@ export default function MapView({
               if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
                 const distMeters = haversineDistance(dlLat, dlLng, targetCoords[1], targetCoords[0]);
                 const miles = distMeters * 0.000621371;
-                distanceStr = `${miles.toFixed(1)} mi`;
-                etaStr = `${Math.max(1, Math.round(miles * 2.5))} min`;
+                const isApprox = !isActiveRoadSnapped;
+                const approxPrefix = isApprox ? '~' : '';
+                const approxSuffix = isApprox ? ' (approx)' : '';
+                distanceStr = `${approxPrefix}${miles.toFixed(1)} mi${approxSuffix}`;
+                etaStr = `${approxPrefix}${Math.max(1, Math.round(miles * 2.5))} min${approxSuffix}`;
               }
             }
           }
