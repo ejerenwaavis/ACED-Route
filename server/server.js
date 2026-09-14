@@ -53,12 +53,6 @@ const downloadEndpoints = [
 ];
 
 app.get(downloadEndpoints, (req, res) => {
-  const localApkPath = path.join(publicHtmlPath, 'download', 'acedroute.apk');
-  if (fs.existsSync(localApkPath)) {
-    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-    res.setHeader('Content-Disposition', 'attachment; filename="acedroute.apk"');
-    return res.download(localApkPath, 'acedroute.apk');
-  }
   return res.redirect(302, GITHUB_RELEASE_APK_URL);
 });
 
