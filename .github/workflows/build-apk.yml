@@ -32,6 +32,29 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - name: Ensure Dedicated Signing Keystore
+        run: |
+          mkdir -p mobile/android/app
+          if [ -f mobile/android/app/acedroute.jks.base64 ]; then
+            echo "Restoring dedicated keystore from committed base64..."
+            base64 -d mobile/android/app/acedroute.jks.base64 > mobile/android/app/acedroute.keystore
+          else
+            echo "Generating dedicated permanent keystore..."
+            keytool -genkeypair -v \
+              -keystore mobile/android/app/acedroute.keystore \
+              -alias acedroute \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass acedroute123 \
+              -keypass acedroute123 \
+              -dname "CN=ACED Route, OU=Mobile, O=ACED Division, L=Atlanta, ST=GA, C=US"
+            base64 -w 0 mobile/android/app/acedroute.keystore > mobile/android/app/acedroute.jks.base64
+            echo "::notice title=Generated Keystore::$(cat mobile/android/app/acedroute.jks.base64)"
+          fi
+          echo "=== KESTORE CERTIFICATE FINGERPRINTS ==="
+          keytool -list -v -keystore mobile/android/app/acedroute.keystore -alias acedroute -storepass acedroute123 | grep -E "SHA1|SHA256"
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
