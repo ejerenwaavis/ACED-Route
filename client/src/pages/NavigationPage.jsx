@@ -38,6 +38,19 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const [isMuted, setIsMuted] = useState(false);
   const [currentRouteResult, setCurrentRouteResult] = useState(null);
 
+  // Synchronize incoming stops prop or manifest.stops into local stops state
+  useEffect(() => {
+    if (initialStops && initialStops.length > 0) {
+      setStops(initialStops);
+    }
+  }, [initialStops]);
+
+  useEffect(() => {
+    if ((!stops || stops.length === 0) && manifest?.stops && manifest.stops.length > 0) {
+      setStops(manifest.stops);
+    }
+  }, [manifest]);
+
   const activeStop = stops[currentIndex] || null;
   const activeAddr = activeStop?.address || {};
 
