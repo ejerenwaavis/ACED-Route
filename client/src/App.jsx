@@ -9,8 +9,10 @@ import NavigationPage from './pages/NavigationPage';
 import HistoryPage from './pages/HistoryPage';
 import { getUser, getToken, setToken, api } from './services/api';
 import { routingService } from './services/routing';
+import { useLanguage } from './utils/i18n';
 
 export default function App() {
+  const { t } = useLanguage();
   const [user, setUser] = useState(getUser());
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'sequencer' | 'navigation' | 'history'
 
@@ -117,35 +119,35 @@ export default function App() {
           onClick={() => setActiveTab('upload')}
         >
           <UploadCloud size={16} />
-          <span>Upload</span>
+          <span>{t('upload')}</span>
         </button>
 
         <button
           className={`nav-tab ${activeTab === 'sequencer' ? 'active' : ''}`}
           onClick={() => {
             if (!activeManifest) {
-              alert('Please upload or open a manifest first.');
+              alert(t('pleaseUploadManifest'));
               return;
             }
             setActiveTab('sequencer');
           }}
         >
           <ListOrdered size={16} />
-          <span>Sequencer {activeManifest ? `(${sequencedStops.length})` : ''}</span>
+          <span>{t('sequencer')} {activeManifest ? `(${sequencedStops.length})` : ''}</span>
         </button>
 
         <button
           className={`nav-tab ${activeTab === 'navigation' ? 'active' : ''}`}
           onClick={() => {
             if (!activeManifest) {
-              alert('Please upload or open a manifest first.');
+              alert(t('pleaseUploadManifest'));
               return;
             }
             setActiveTab('navigation');
           }}
         >
           <Navigation size={16} />
-          <span>Navigation</span>
+          <span>{t('navigation')}</span>
         </button>
 
         <button
@@ -153,7 +155,7 @@ export default function App() {
           onClick={() => setActiveTab('history')}
         >
           <Clock size={16} />
-          <span>History</span>
+          <span>{t('history')}</span>
         </button>
       </nav>
 

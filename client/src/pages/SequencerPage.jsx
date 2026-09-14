@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, Play, Sparkles, MapPin, RefreshCw, CheckCircle, Navigation, ShieldAlert } from 'lucide-react';
 import MapView from '../components/MapView';
 import { api } from '../services/api';
+import { useLanguage } from '../utils/i18n';
 
 export default function SequencerPage({ manifest, onStartRoute }) {
+  const { t } = useLanguage();
   const [stops, setStops] = useState([]);
   const [hasLearnedData, setHasLearnedData] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -67,20 +69,20 @@ export default function SequencerPage({ manifest, onStartRoute }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
             <h2 className="card-title">
-              <Navigation size={22} color="#38bdf8" /> Route Sequencing & Order
+              <Navigation size={22} color="#38bdf8" /> {t('routeSequencing')}
             </h2>
             <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-              Review the stop sequence. Reorder any stops manually before departing.
+              {t('reviewStopSequence')}
             </p>
           </div>
           <div>
             {hasLearnedData ? (
               <span className="badge badge-green" style={{ gap: '0.35rem' }}>
-                <Sparkles size={12} /> Graph Learning Active
+                <Sparkles size={12} /> {t('graphLearningActive')}
               </span>
             ) : (
               <span className="badge badge-yellow" title="Graph will accumulate as routes are completed">
-                Initial Upload Sequence
+                {t('initialSequence')}
               </span>
             )}
           </div>
@@ -99,7 +101,7 @@ export default function SequencerPage({ manifest, onStartRoute }) {
           disabled={saving || stops.length === 0}
         >
           <Play size={20} />
-          <span>{saving ? 'Saving Sequence...' : `Start Route (${stops.length} Stops)`}</span>
+          <span>{saving ? t('savingSequence') : t('startRouteStops', { count: stops.length })}</span>
         </button>
       </div>
 
@@ -110,10 +112,10 @@ export default function SequencerPage({ manifest, onStartRoute }) {
       <div style={{ marginTop: '1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
           <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#e2e8f0' }}>
-            Stop Order ({stops.length})
+            {t('stopOrder')} ({stops.length})
           </h3>
           <button className="btn btn-secondary btn-sm" onClick={loadSuggestedOrder}>
-            <RefreshCw size={12} /> Reset to Suggestion
+            <RefreshCw size={12} /> {t('resetToSuggestion')}
           </button>
         </div>
 

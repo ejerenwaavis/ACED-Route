@@ -18,8 +18,10 @@ import {
   SAMPLE_MANIFEST_CSV
 } from '../utils/manifestParser';
 import { api } from '../services/api';
+import { useLanguage } from '../utils/i18n';
 
 export default function UploadPage({ onManifestUploaded }) {
+  const { t } = useLanguage();
   const [file, setFile] = useState(null);
   const [rawText, setRawText] = useState('');
   const [routeDate, setRouteDate] = useState(new Date().toISOString().split('T')[0]);
@@ -142,15 +144,15 @@ export default function UploadPage({ onManifestUploaded }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
             <h2 className="card-title">
-              <UploadCloud size={22} color="#38bdf8" /> Upload Today's Manifest
+              <UploadCloud size={22} color="#38bdf8" /> {t('uploadTodaysManifest')}
             </h2>
             <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-              Adaptive parser auto-detects barcodes, delivery addresses, scanned GPS coordinates, and stop sequences from any carrier or dispatch CSV.
+              {t('adaptiveParserDesc')}
             </p>
           </div>
           <button className="btn btn-secondary btn-sm" onClick={handleLoadSample}>
             <Sparkles size={14} color="#f59e0b" />
-            <span>Sample Route</span>
+            <span>{t('sampleRoute')}</span>
           </button>
         </div>
 
@@ -175,7 +177,7 @@ export default function UploadPage({ onManifestUploaded }) {
         {/* Route Date Field */}
         <div style={{ marginBottom: '1.25rem' }}>
           <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-            Route Date:
+            {t('routeDate')}
           </label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Calendar size={18} color="#94a3b8" />
@@ -201,13 +203,13 @@ export default function UploadPage({ onManifestUploaded }) {
             className={`btn btn-sm ${!showPaste ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setShowPaste(false)}
           >
-            File Upload (CSV)
+            {t('fileUploadCsv')}
           </button>
           <button
             className={`btn btn-sm ${showPaste ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setShowPaste(true)}
           >
-            Paste Text
+            {t('pasteText')}
           </button>
         </div>
 
@@ -225,10 +227,10 @@ export default function UploadPage({ onManifestUploaded }) {
             />
             <UploadCloud size={36} color="#38bdf8" style={{ margin: '0 auto 0.5rem' }} />
             <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem' }}>
-              {file ? file.name : 'Tap to select a Manifest CSV file'}
+              {file ? file.name : t('tapToSelectCsv')}
             </p>
             <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-              Supports OnTrac, Amazon, FedEx, UPS, LaserShip, or custom dispatch spreadsheets
+              {t('carrierSupport')}
             </p>
           </div>
         ) : (
@@ -491,12 +493,12 @@ export default function UploadPage({ onManifestUploaded }) {
               {loading ? (
                 <>
                   <Loader2 size={20} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>Processing & Saving Manifest...</span>
+                  <span>{t('parsing')}</span>
                 </>
               ) : (
                 <>
                   <UploadCloud size={20} />
-                  <span>Save Manifest & Generate Route ({parsedStops.length} Stops)</span>
+                  <span>{t('uploadAndParse')} ({parsedStops.length} {t('allStops').toLowerCase()})</span>
                 </>
               )}
             </button>

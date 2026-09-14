@@ -22,6 +22,7 @@ export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 's
     return {
       version: 8,
       name: 'ACED Route Night Dark',
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
         'esri-dark-base': {
           type: 'raster',
@@ -63,6 +64,7 @@ export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 's
   return {
     version: 8,
     name: 'ACED Route World Street',
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       'esri-street': {
         type: 'raster',
@@ -93,6 +95,7 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
   return {
     version: 8,
     name: 'ACED Route Dark Offline',
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       protomaps: {
         type: 'vector',

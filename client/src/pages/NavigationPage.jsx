@@ -18,9 +18,10 @@ import { routingService } from '../services/routing';
 import { Capacitor } from '@capacitor/core';
 import NativeHandoffModal from '../components/NativeHandoffModal';
 import { useNavigationGuidance } from '../hooks/useNavigationGuidance';
-import { t, getLanguage, translateManeuver } from '../utils/i18n';
+import { useLanguage, getLanguage, translateManeuver } from '../utils/i18n';
 
 export default function NavigationPage({ manifest, stops: initialStops, onRouteComplete }) {
+  const { t, lang } = useLanguage();
   const [stops, setStops] = useState(initialStops || []);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [brandName, setBrandName] = useState(null);
@@ -388,8 +389,8 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       {/* Route Progress Bar */}
       <div className="card" style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.35rem' }}>
-          <span>Route Progress</span>
-          <span>{deliveredCount} of {stops.length} stops ({progressPercent}%)</span>
+          <span>{t('routeProgress')}</span>
+          <span>{t('stopsCountProgress', { delivered: deliveredCount, total: stops.length, percent: progressPercent })}</span>
         </div>
         <div style={{ width: '100%', height: '8px', background: '#0f172a', borderRadius: '999px', overflow: 'hidden' }}>
           <div
@@ -409,7 +410,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
           <div className="nav-hero-header">
             <div>
               <span className="badge badge-blue" style={{ marginBottom: '0.5rem' }}>
-                Stop {currentIndex + 1} of {stops.length}
+                {t('stopOf', { current: currentIndex + 1, total: stops.length })}
               </span>
               <div className="nav-hero-address">
                 {activeAddr.street || activeAddr.raw || 'Pending Address'}
@@ -422,7 +423,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
             <div className="nav-hero-tracking">
-              PKG: <strong>{activeStop.trackingNumber}</strong>
+              {t('package')}: <strong>{activeStop.trackingNumber}</strong>
             </div>
 
             {brandName && (
@@ -437,7 +438,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             {activeAddr.gateCode ? (
               <div className="gate-code-pill">
-                <Key size={14} /> Gate: #{activeAddr.gateCode}
+                <Key size={14} /> {t('gate')}: #{activeAddr.gateCode}
               </div>
             ) : null}
 
@@ -446,13 +447,13 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
               style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
               onClick={() => setShowGateModal(true)}
             >
-              <Edit3 size={12} /> {activeAddr.gateCode ? 'Edit Gate/Notes' : '+ Add Gate Code'}
+              <Edit3 size={12} /> {activeAddr.gateCode ? t('editGateNotes') : t('addGateCode')}
             </button>
           </div>
 
           {activeAddr.notes && (
             <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#cbd5e1', fontStyle: 'italic' }}>
-              Note: {activeAddr.notes}
+              {t('note')}: {activeAddr.notes}
             </div>
           )}
 
@@ -463,7 +464,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
             style={{ marginTop: '1.25rem', gap: '0.75rem' }}
           >
             <Navigation size={22} />
-            <span>{isNavigating ? 'Resume In-App Navigation' : `Start Navigation to Stop #${currentIndex + 1}`}</span>
+            <span>{isNavigating ? t('resumeNavigation') : t('startNavigationToStop', { number: currentIndex + 1 })}</span>
           </button>
 
           {/* External Navigation Link Option */}
@@ -473,7 +474,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
               style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
             >
               <ExternalLink size={12} />
-              <span>Open in Google Maps</span>
+              <span>{t('openGoogleMaps')}</span>
             </button>
           </div>
 
@@ -481,11 +482,11 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
           <div className="nav-hero-buttons">
             <button className="btn btn-success btn-lg" onClick={handleMarkDelivered}>
               <CheckCircle2 size={20} />
-              <span>Delivered</span>
+              <span>{t('delivered')}</span>
             </button>
             <button className="btn btn-secondary btn-lg" onClick={handleSkipStop}>
               <AlertTriangle size={18} color="#f59e0b" />
-              <span>Skip / Attempt</span>
+              <span>{t('skipAttempt')}</span>
             </button>
           </div>
         </div>
@@ -508,13 +509,13 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       {/* Stop Sequence Cards */}
       <div style={{ marginTop: '1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#e2e8f0' }}>All Stops</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#e2e8f0' }}>{t('allStops')}</h3>
           <button
             className="btn btn-warning btn-sm"
             onClick={() => handleFinishRoute()}
             disabled={completingRoute}
           >
-            {completingRoute ? 'Finishing...' : 'Complete Route Now'}
+            {completingRoute ? t('finishing') : t('completeRouteNow')}
           </button>
         </div>
 
