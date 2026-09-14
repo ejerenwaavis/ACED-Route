@@ -83,6 +83,11 @@ async function queryValhalla(payload) {
   throw new Error('Valhalla routing service unreachable');
 }
 
+function logServerEvent(type, message, meta = {}) {
+  const ts = new Date().toISOString();
+  console.log(`[Route API] [${ts}] [${type}] ${message}`, Object.keys(meta).length ? JSON.stringify(meta) : '');
+}
+
 /**
  * POST /api/route/sequence
  * Multi-waypoint solve across all manifest stops in a single continuous Valhalla request.
@@ -90,11 +95,19 @@ async function queryValhalla(payload) {
  * Response: { coordinates, distanceMeters, durationSeconds, isRoadSnapped: true }
  */
 router.post('/sequence', requireAuth, async (req, res) => {
+  const startTs = Date.now();
   try {
     const { stops, costing = 'auto' } = req.body;
     if (!Array.isArray(stops) || stops.length < 2) {
+      logServerEvent('WARN', 'POST /sequence invalid payload: fewer than 2 stops');
       return res.status(400).json({ error: 'Must provide an array of at least 2 stop [lng, lat] coordinate pairs' });
     }
+
+    logServerEvent('INFO', `POST /sequence processing ${stops.length} stops (costing=${costing})`, {
+      user: req.user?.id || req.user?.email || 'authenticated',
+      firstStop: stops[0],
+      lastStop: stops[stops.length - 1]
+    });
 
     // Build locations array with type: 'break' for every stop
     const locations = stops.map(pt => ({
@@ -114,6 +127,7 @@ router.post('/sequence', requireAuth, async (req, res) => {
 
     const data = await queryValhalla(valhallaReq);
     if (!data || !data.trip || !data.trip.legs) {
+      logServerEvent('ERROR', 'POST /sequence Valhalla returned no trip legs');
       return res.status(502).json({ error: 'Valhalla returned no trip legs' });
     }
 
@@ -130,6 +144,9 @@ router.post('/sequence', requireAuth, async (req, res) => {
 
     const distanceMeters = Math.round((data.trip.summary?.length || 0) * 1000);
     const durationSeconds = Math.round(data.trip.summary?.time || 0);
+    const elapsed = Date.now() - startTs;
+
+    logServerEvent('SUCCESS', `POST /sequence solved: ${allCoords.length} coords, ${distanceMeters}m (${(distanceMeters/1609.34).toFixed(1)}mi) in ${elapsed}ms`);
 
     return res.json({
       coordinates: allCoords,
@@ -138,7 +155,8 @@ router.post('/sequence', requireAuth, async (req, res) => {
       isRoadSnapped: true
     });
   } catch (err) {
-    console.error('[Route API] /sequence error:', err.message);
+    const elapsed = Date.now() - startTs;
+    logServerEvent('ERROR', `POST /sequence failed after ${elapsed}ms: ${err.message}`);
     return res.status(503).json({ error: 'Route calculation unavailable: ' + err.message });
   }
 });
@@ -150,11 +168,18 @@ router.post('/sequence', requireAuth, async (req, res) => {
  * Response: { coordinates, distanceMeters, durationSeconds, instructions, isRoadSnapped: true }
  */
 router.post('/active', requireAuth, async (req, res) => {
+  const startTs = Date.now();
   try {
     const { start, end, costing = 'auto' } = req.body;
     if (!Array.isArray(start) || start.length < 2 || !Array.isArray(end) || end.length < 2) {
+      logServerEvent('WARN', 'POST /active invalid payload: missing start or end coordinates');
       return res.status(400).json({ error: 'Must provide start [lng, lat] and end [lng, lat] coordinate pairs' });
     }
+
+    logServerEvent('INFO', `POST /active processing leg [${start[0].toFixed(4)},${start[1].toFixed(4)}] -> [${end[0].toFixed(4)},${end[1].toFixed(4)}]`, {
+      user: req.user?.id || req.user?.email || 'authenticated',
+      costing
+    });
 
     const locations = [
       { lon: Number(start[0]), lat: Number(start[1]), type: 'break' },
@@ -172,6 +197,7 @@ router.post('/active', requireAuth, async (req, res) => {
 
     const data = await queryValhalla(valhallaReq);
     if (!data || !data.trip || !data.trip.legs || !data.trip.legs[0]) {
+      logServerEvent('ERROR', 'POST /active Valhalla returned no trip legs');
       return res.status(502).json({ error: 'Valhalla returned no trip legs' });
     }
 
@@ -189,6 +215,9 @@ router.post('/active', requireAuth, async (req, res) => {
       type: m.type || 1
     }));
 
+    const elapsed = Date.now() - startTs;
+    logServerEvent('SUCCESS', `POST /active solved: ${coordinates.length} coords, ${distanceMeters}m (${(distanceMeters/1609.34).toFixed(1)}mi), ${instructions.length} maneuvers in ${elapsed}ms`);
+
     return res.json({
       coordinates,
       distanceMeters,
@@ -197,7 +226,8 @@ router.post('/active', requireAuth, async (req, res) => {
       isRoadSnapped: true
     });
   } catch (err) {
-    console.error('[Route API] /active error:', err.message);
+    const elapsed = Date.now() - startTs;
+    logServerEvent('ERROR', `POST /active failed after ${elapsed}ms: ${err.message}`);
     return res.status(503).json({ error: 'Route calculation unavailable: ' + err.message });
   }
 });

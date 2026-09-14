@@ -2,10 +2,11 @@ import { AcedRouting } from 'aced-routing';
 import { Network } from '@capacitor/network';
 import { getLanguage } from '../utils/i18n';
 import { api } from './api';
+import { diagnosticLogger } from './diagnosticLogger';
 
 const ACTIVE_REGION_KEY = 'aced_active_region';
 const DB_NAME = 'aced_routing_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'geometry_cache';
 
 function openRouteDB() {
@@ -17,6 +18,9 @@ function openRouteDB() {
         const db = e.target.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('system_logs')) {
+          db.createObjectStore('system_logs', { keyPath: 'id', autoIncrement: true });
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -160,10 +164,12 @@ export const routingService = {
     }
 
     const cacheKey = `act_${startLL[0].toFixed(4)},${startLL[1].toFixed(4)}_${endLL[0].toFixed(4)},${endLL[1].toFixed(4)}`;
+    const startTime = Date.now();
 
     // 1. Attempt Valhalla server call
     try {
       const res = await api.calculateActiveRoute(startLL, endLL);
+      const durationMs = Date.now() - startTime;
       if (res && res.coordinates && res.coordinates.length > 0) {
         const payload = {
           coordinates: res.coordinates,
@@ -173,22 +179,59 @@ export const routingService = {
           isRoadSnapped: true
         };
         await setCachedGeometry(cacheKey, payload);
+        diagnosticLogger.logRoutingEvent({
+          endpoint: '/api/route/active',
+          status: 200,
+          level: 'success',
+          summary: `✅ /api/route/active succeeded: HTTP 200 (${res.coordinates.length} coords, ${res.distanceMeters || 0}m) in ${durationMs}ms`,
+          isRoadSnapped: true,
+          cacheHit: false,
+          durationMs,
+          details: { coordsCount: res.coordinates.length, start: startLL, end: endLL }
+        });
         return payload;
       }
     } catch (err) {
-      console.warn('[routingService] Active route server call failed:', err?.message || err);
+      const durationMs = Date.now() - startTime;
+      const status = err.status || (err.message && err.message.includes('Failed to fetch') ? 'offline' : 'ERR');
+      diagnosticLogger.logRoutingEvent({
+        endpoint: '/api/route/active',
+        status,
+        level: 'warn',
+        summary: `❌ /api/route/active failed: HTTP ${status} (${err.message || 'unknown'}) → checking cache`,
+        isRoadSnapped: false,
+        cacheHit: false,
+        durationMs,
+        details: { error: err.message, status, start: startLL, end: endLL }
+      });
     }
 
     // 2. Broad failure handling: Check IndexedDB cache
     const cached = await getCachedGeometry(cacheKey);
     if (cached && cached.coordinates && cached.coordinates.length > 0) {
+      diagnosticLogger.logRoutingEvent({
+        endpoint: '/api/route/active',
+        status: 'CACHE',
+        level: 'info',
+        summary: `💾 /api/route/active cache hit: IndexedDB (${cached.coordinates.length} coords) → road-snapped line`,
+        isRoadSnapped: true,
+        cacheHit: true,
+        details: { coordsCount: cached.coordinates.length, cacheKey }
+      });
       return { ...cached, isRoadSnapped: true };
     }
 
     // 3. Cache miss under failure: Return raw endpoints with isRoadSnapped: false
-    // NOTE: This offline gap is the reason Phase 1 (on-device Valhalla) still needs to happen —
-    // this server-side version is a bridge, not the final state.
     const distMeters = haversineMeters(startLL[1], startLL[0], endLL[1], endLL[0]);
+    diagnosticLogger.logRoutingEvent({
+      endpoint: '/api/route/active',
+      status: 'FALLBACK',
+      level: 'warn',
+      summary: `⚠️ /api/route/active fallback: Cache miss → dot trail (${Math.round(distMeters)}m approximate)`,
+      isRoadSnapped: false,
+      cacheHit: false,
+      details: { start: startLL, end: endLL, distanceMeters: Math.round(distMeters) }
+    });
     return {
       coordinates: [startLL, endLL],
       distanceMeters: Math.round(distMeters),
@@ -222,10 +265,12 @@ export const routingService = {
     }
 
     const cacheKey = `seq_${validCoords.length}_` + validCoords.slice(0, 5).map(c => `${c[0].toFixed(3)},${c[1].toFixed(3)}`).join('_');
+    const startTime = Date.now();
 
     // 1. Attempt Valhalla multi-waypoint sequence solve
     try {
       const res = await api.calculateSequenceRoute(validCoords);
+      const durationMs = Date.now() - startTime;
       if (res && res.coordinates && res.coordinates.length > 0) {
         const payload = {
           coordinates: res.coordinates,
@@ -234,19 +279,58 @@ export const routingService = {
           isRoadSnapped: true
         };
         await setCachedGeometry(cacheKey, payload);
+        diagnosticLogger.logRoutingEvent({
+          endpoint: '/api/route/sequence',
+          status: 200,
+          level: 'success',
+          summary: `✅ /api/route/sequence succeeded: HTTP 200 (${res.coordinates.length} coords, ${validCoords.length} stops) in ${durationMs}ms`,
+          isRoadSnapped: true,
+          cacheHit: false,
+          durationMs,
+          details: { coordsCount: res.coordinates.length, stopCount: validCoords.length }
+        });
         return payload;
       }
     } catch (err) {
-      console.warn('[routingService] Sequence route server call failed:', err?.message || err);
+      const durationMs = Date.now() - startTime;
+      const status = err.status || (err.message && err.message.includes('Failed to fetch') ? 'offline' : 'ERR');
+      diagnosticLogger.logRoutingEvent({
+        endpoint: '/api/route/sequence',
+        status,
+        level: 'warn',
+        summary: `❌ /api/route/sequence failed: HTTP ${status} (${err.message || 'unknown'}) → checking cache`,
+        isRoadSnapped: false,
+        cacheHit: false,
+        durationMs,
+        details: { error: err.message, status, stopCount: validCoords.length }
+      });
     }
 
     // 2. Check IndexedDB cache
     const cached = await getCachedGeometry(cacheKey);
     if (cached && cached.coordinates && cached.coordinates.length > 0) {
+      diagnosticLogger.logRoutingEvent({
+        endpoint: '/api/route/sequence',
+        status: 'CACHE',
+        level: 'info',
+        summary: `💾 /api/route/sequence cache hit: IndexedDB (${cached.coordinates.length} coords) → road-snapped line`,
+        isRoadSnapped: true,
+        cacheHit: true,
+        details: { coordsCount: cached.coordinates.length, cacheKey }
+      });
       return { ...cached, isRoadSnapped: true };
     }
 
     // 3. Cache miss: Return raw stops with isRoadSnapped: false
+    diagnosticLogger.logRoutingEvent({
+      endpoint: '/api/route/sequence',
+      status: 'FALLBACK',
+      level: 'warn',
+      summary: `⚠️ /api/route/sequence fallback: Cache miss → sequence dots (${validCoords.length} stops approximate)`,
+      isRoadSnapped: false,
+      cacheHit: false,
+      details: { stopCount: validCoords.length }
+    });
     return {
       coordinates: validCoords,
       isRoadSnapped: false

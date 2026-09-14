@@ -1348,7 +1348,8 @@ body {
 }
 
 .map-approximate-route-pill.navigating {
-  top: calc(env(safe-area-inset-top, 0px) + 5.25rem);
+  top: calc(env(safe-area-inset-top, 0px) + 7.5rem);
+  z-index: 115;
 }
 
 @keyframes pulse-badge {

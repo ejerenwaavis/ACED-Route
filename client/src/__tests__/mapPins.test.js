@@ -522,10 +522,12 @@ function testBuildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, dr
 
 function testBuildDotTrail(driverLoc, targetCoords, isRoadSnapped) {
   if (isRoadSnapped) return { type: 'FeatureCollection', features: [] };
-  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
-  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
-  if (dlLng == null || dlLat == null || isNaN(dlLng) || isNaN(dlLat) || !targetCoords || targetCoords.length < 2) {
-    return { type: 'FeatureCollection', features: [] };
+  if (!targetCoords || targetCoords.length < 2) return { type: 'FeatureCollection', features: [] };
+  let dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  let dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  if (dlLng == null || dlLat == null || isNaN(dlLng) || isNaN(dlLat)) {
+    dlLng = targetCoords[0] - 0.015;
+    dlLat = targetCoords[1] - 0.015;
   }
   const tLng = targetCoords[0];
   const tLat = targetCoords[1];
@@ -610,6 +612,59 @@ assert('Server route module includes bitwise decodePolyline6', serverRouteCode.i
 assert('Server route module protects endpoints with requireAuth JWT middleware', serverRouteCode.includes('router.use(requireAuth)'));
 assert('Server route module defines POST /sequence', serverRouteCode.includes("router.post('/sequence'"));
 assert('Server route module defines POST /active', serverRouteCode.includes("router.post('/active'"));
+assert('Server route module includes logServerEvent structured logging', serverRouteCode.includes('logServerEvent'));
+
+// =============================================================================
+// SCENARIO 15: Diagnostic Logging System & Route-Line Regression Fixes
+// =============================================================================
+console.log('\nS15: Diagnostic Logging System & Route-Line Regression Fixes');
+
+// 1. Diagnostic Logger Module Verification
+const loggerPath = path.join(__dirname, '../services/diagnosticLogger.js');
+assert('diagnosticLogger module exists', fs.existsSync(loggerPath));
+const loggerCode = fs.readFileSync(loggerPath, 'utf8');
+assert('diagnosticLogger defines MAX_LOG_ENTRIES ring buffer', loggerCode.includes('MAX_LOG_ENTRIES = 500'));
+assert('diagnosticLogger exports logRoutingEvent', loggerCode.includes('logRoutingEvent'));
+assert('diagnosticLogger exports exportLogsAsText', loggerCode.includes('exportLogsAsText'));
+assert('diagnosticLogger exports downloadLogsFile', loggerCode.includes('downloadLogsFile'));
+assert('diagnosticLogger exports getLastFetchOutcome', loggerCode.includes('getLastFetchOutcome'));
+
+// 2. Active Dot Trail with Null Driver Location Fallback
+const nullDriverDots = testBuildDotTrail(null, [-84.071, 34.052], false);
+assert('testBuildDotTrail generates 16 dots even when driverLocation is null', nullDriverDots.features.length === 16);
+assert('MapView buildDotTrailGeoJSON supports null driverLocation fallback', mapViewCode.includes('targetCoords[0] - 0.015'));
+
+// 3. Dense Sequence Dot Trail Generation
+assert('MapView buildSequenceDotTrailGeoJSON uses dense 15 points per segment', mapViewCode.includes('const count = 15;'));
+const sampleStopsForDots = [
+  { lat: 34.05, lng: -84.07 },
+  { lat: 34.06, lng: -84.08 },
+  { lat: 34.07, lng: -84.09 }
+];
+const seqDotsFC = testBuildSequenceDotTrail(sampleStopsForDots, false);
+assert('Sequence dot trail generates circle points across stops', seqDotsFC.features.length > 0);
+
+// 4. Debug HUD Format Verification
+assert('MapView HUD string includes both lines, dots, and lastFetch', mapViewCode.includes('lines:{seq:${seqCoordsCount}, act:${actCoordsCount}} dots:{seq:${seqDotsCount}, act:${actDotsCount}} lastFetch:${diagnosticLogger.getLastFetchOutcome()}'));
+assert('MapView has removed duplicate HUD overwrite from markers effect', !mapViewCode.includes('lines:{seq:${seqCoordsCount}, act:${actCoordsCount}}`)\n  }, [stops, activeIndex'));
+
+// 5. CSS Navigating Badge Offset Verification (Cleanly below turn card)
+assert('CSS .map-approximate-route-pill.navigating has safe-area + 7.5rem offset', /\.map-approximate-route-pill\.navigating[^{]*\{[^}]*7\.5rem/.test(cssContent));
+assert('CSS .map-approximate-route-pill.navigating has z-index 115', /\.map-approximate-route-pill\.navigating[^{]*\{[^}]*z-index:\s*115/.test(cssContent));
+
+// 6. NavigationPage Coordinate Extraction Bug Fix
+const navPageCode = fs.readFileSync(path.join(__dirname, '../pages/NavigationPage.jsx'), 'utf8');
+assert('NavigationPage imports getStopCoords from geoUtils', navPageCode.includes('import { haversineDistance, getStopCoords } from \'../utils/geoUtils\''));
+assert('NavigationPage fetchSequenceRoute maps stops via getStopCoords', navPageCode.includes('stops.map(getStopCoords).filter(Boolean)'));
+assert('NavigationPage computeLeg extracts targetCoords via getStopCoords', navPageCode.includes('getStopCoords(activeStop) || getStopCoords(activeAddr)'));
+
+// 7. SystemLogModal Component Verification
+const logModalPath = path.join(__dirname, '../components/SystemLogModal.jsx');
+assert('SystemLogModal component exists', fs.existsSync(logModalPath));
+const headerCode = fs.readFileSync(path.join(__dirname, '../components/Header.jsx'), 'utf8');
+assert('Header imports SystemLogModal', headerCode.includes('import SystemLogModal from \'./SystemLogModal\''));
+assert('Header renders SystemLogModal', headerCode.includes('<SystemLogModal'));
+assert('Header settings modal includes Routing Diagnostic Logs section', headerCode.includes('Routing Diagnostic Logs'));
 
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');

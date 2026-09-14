@@ -66,7 +66,12 @@ async function request(path, options = {}) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || `HTTP error ${res.status}`);
+    const errorMsg = data.error || data.message || `HTTP ${res.status}`;
+    const err = new Error(errorMsg);
+    err.status = res.status;
+    err.statusText = res.statusText;
+    err.response = data;
+    throw err;
   }
   return data;
 }

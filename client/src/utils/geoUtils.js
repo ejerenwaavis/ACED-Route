@@ -3,7 +3,67 @@
  * Provides high-precision distance, bearing, and cross-track calculations for real-time guidance.
  */
 
+import { getCachedCoordinates } from './geocodeCache';
+
 const EARTH_RADIUS_METERS = 6371000;
+
+/**
+ * Robust coordinate extractor for manifest stops.
+ * Handles [lng, lat], [lat, lng], and object forms ({ lat, lng } / { latitude, longitude } / { lon, lat }).
+ * Falls back to geocode cache by address.
+ * Returns standard [lng, lat] GeoJSON array or null.
+ */
+export function getStopCoords(stop) {
+  if (!stop) return null;
+
+  // 1. Array coordinates: [lng, lat]
+  const raw = stop.address?.location?.coordinates || stop.coordinates || stop.location?.coordinates;
+  if (Array.isArray(raw) && raw.length >= 2) {
+    let lng = parseFloat(raw[0]);
+    let lat = parseFloat(raw[1]);
+    // Safety check if coordinates were stored as [lat, lng] instead of [lng, lat]
+    if (lat < 0 && lng > 0) {
+      const tmp = lng;
+      lng = lat;
+      lat = tmp;
+    }
+    if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) {
+      return [lng, lat];
+    }
+  }
+
+  // 2. Object latitude/longitude fields
+  const obj = (typeof stop.address === 'object' && stop.address !== null) ? stop.address : stop;
+  const latVal = obj.latitude ?? obj.lat;
+  const lngVal = obj.longitude ?? obj.lng ?? obj.lon;
+  if (latVal != null && lngVal != null) {
+    let lat = parseFloat(latVal);
+    let lng = parseFloat(lngVal);
+    if (lat < 0 && lng > 0) {
+      const tmp = lng;
+      lng = lat;
+      lat = tmp;
+    }
+    if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) {
+      return [lng, lat];
+    }
+  }
+
+  // 3. Fallback to geocode cache by address
+  const addrStr = typeof stop === 'string'
+    ? stop
+    : (typeof stop.address === 'string'
+        ? stop.address
+        : (stop.address?.street || stop.address?.raw || stop.address?.normalizedAddress || stop.street || stop.raw || ''));
+  if (addrStr) {
+    const cached = getCachedCoordinates(addrStr);
+    if (cached && Array.isArray(cached) && cached.length >= 2) {
+      return [cached[0], cached[1]];
+    }
+  }
+
+  return null;
+}
 
 /**
  * Calculates great-circle distance between two coordinates in meters.

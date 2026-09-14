@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud, ChevronDown, User, Route as RouteIcon } from 'lucide-react';
+import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud, ChevronDown, User, Route as RouteIcon, FileText } from 'lucide-react';
 import { getUser, removeToken, getApiBase, setApiBase } from '../services/api';
 import OfflineMapsModal from './OfflineMapsModal';
 import AppUpdateModal from './AppUpdateModal';
+import SystemLogModal from './SystemLogModal';
 import { getLanguage, setLanguage, onLanguageChange, t } from '../utils/i18n';
 
 export default function Header({ user, onAuthChange, onOpenLogin, activeManifest, stops, activeTab }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showLogsModal, setShowLogsModal] = useState(false);
   const [customApi, setCustomApi] = useState(getApiBase());
   const [lang, setLangState] = useState(getLanguage());
 
@@ -184,6 +186,29 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
               }}
             />
 
+            {/* Diagnostic Logs trigger inside Backend Settings */}
+            <div style={{ margin: '1rem 0', padding: '0.85rem', background: '#090d16', borderRadius: '10px', border: '1px solid #1e293b' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.85rem', color: '#f1f5f9' }}>
+                    <FileText size={15} color="#F28C28" />
+                    <span>Routing Diagnostic Logs</span>
+                  </div>
+                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                    Inspect routing network calls, status codes, and download .txt logs
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowLogsModal(true)}
+                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', whiteSpace: 'nowrap' }}
+                >
+                  View Logs
+                </button>
+              </div>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowSettings(false)}>
                 Cancel
@@ -204,6 +229,11 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
       <AppUpdateModal
         isOpen={showUpdateModal}
         onClose={() => setShowUpdateModal(false)}
+      />
+
+      <SystemLogModal
+        isOpen={showLogsModal}
+        onClose={() => setShowLogsModal(false)}
       />
     </>
   );

@@ -22,7 +22,7 @@ import NativeHandoffModal from '../components/NativeHandoffModal';
 import NextStopCard from '../components/navigation/NextStopCard';
 import { useNavigationGuidance } from '../hooks/useNavigationGuidance';
 import { useLanguage, getLanguage, translateManeuver } from '../utils/i18n';
-import { haversineDistance } from '../utils/geoUtils';
+import { haversineDistance, getStopCoords } from '../utils/geoUtils';
 import { getCachedCoordinates } from '../utils/geocodeCache';
 
 export default function NavigationPage({ manifest, stops: initialStops, onRouteComplete }) {
@@ -91,16 +91,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
         }
         return;
       }
-      const stopPoints = stops.map((s) => {
-        let coords = s.address?.location?.coordinates || s.coordinates;
-        if (!coords || coords.length < 2) {
-          coords = getCachedCoordinates(s.address?.street || s.address?.raw || s.address?.normalizedAddress || s.address);
-        }
-        if (coords && coords.length >= 2) {
-          return [coords[1], coords[0]]; // [lat, lng] for Valhalla
-        }
-        return null;
-      }).filter(Boolean);
+      const stopPoints = stops.map(getStopCoords).filter(Boolean);
 
       if (stopPoints.length < 2) {
         if (isMounted) {
@@ -186,41 +177,31 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const computeLegRef = useRef(null);
   computeLegRef.current = async function computeLeg() {
     if (!activeStop) return;
-    let targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
-    if (!targetCoords || targetCoords.length < 2) {
-      const addrStr = activeAddr.street || activeAddr.raw || activeAddr.normalizedAddress || activeStop.address;
-      targetCoords = getCachedCoordinates(addrStr);
-    }
+    const targetCoords = getStopCoords(activeStop) || getStopCoords(activeAddr);
     if (!targetCoords || targetCoords.length < 2) return;
 
-    // Valhalla expects [lat, lng]
-    const targetLatLng = [targetCoords[1], targetCoords[0]];
-
     const curDriverLoc = driverLocationRef.current;
-    let originLatLng = null;
+    let originCoords = null;
     if (curDriverLoc) {
       if (Array.isArray(curDriverLoc) && curDriverLoc.length >= 2) {
-        originLatLng = [curDriverLoc[1], curDriverLoc[0]];
-      } else if (curDriverLoc.latitude != null && curDriverLoc.longitude != null) {
-        originLatLng = [curDriverLoc.latitude, curDriverLoc.longitude];
+        originCoords = [curDriverLoc[0], curDriverLoc[1]];
+      } else if (curDriverLoc.longitude != null && curDriverLoc.latitude != null) {
+        originCoords = [curDriverLoc.longitude, curDriverLoc.latitude];
       }
     } else if (currentIndex > 0) {
       const prev = stops[currentIndex - 1];
-      let prevCoords = prev.address?.location?.coordinates || prev.coordinates;
-      if (!prevCoords || prevCoords.length < 2) {
-        prevCoords = getCachedCoordinates(prev.address?.street || prev.address?.raw || prev.address);
-      }
-      if (prevCoords && prevCoords.length >= 2) {
-        originLatLng = [prevCoords[1], prevCoords[0]];
+      const prevCoords = getStopCoords(prev);
+      if (prevCoords) {
+        originCoords = prevCoords;
       }
     }
 
-    if (!originLatLng) {
-      originLatLng = [targetLatLng[0] - 0.015, targetLatLng[1] - 0.015];
+    if (!originCoords) {
+      originCoords = [targetCoords[0] - 0.015, targetCoords[1] - 0.015];
     }
 
     try {
-      const routeResult = await routingService.calculateRoute(originLatLng, targetLatLng);
+      const routeResult = await routingService.calculateRoute(originCoords, targetCoords);
       if (routeResult && routeResult.coordinates && routeResult.coordinates.length) {
         setCurrentRouteResult(routeResult);
         setActiveRouteCoords(routeResult.coordinates);
@@ -232,10 +213,10 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     }
 
     // Direct endpoints between driver and active stop (isRoadSnapped: false triggers dot trail)
-    const directCoords = [[originLatLng[1], originLatLng[0]], [targetLatLng[1], targetLatLng[0]]];
+    const directCoords = [originCoords, targetCoords];
     setActiveRouteCoords(directCoords);
     setIsActiveRoadSnapped(false);
-    const distMeters = haversineDistance(originLatLng[0], originLatLng[1], targetLatLng[0], targetLatLng[1]);
+    const distMeters = haversineDistance(originCoords[1], originCoords[0], targetCoords[1], targetCoords[0]);
     setCurrentRouteResult({
       coordinates: directCoords,
       isRoadSnapped: false,
