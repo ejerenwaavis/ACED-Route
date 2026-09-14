@@ -1,0 +1,54 @@
+/**
+ * ACED Route — Design System Tokens
+ * Dark Chrome / Light Map System
+ */
+:root {
+  /* Core Color Palette */
+  --color-graphite: #17191C;      /* dark chrome background */
+  --color-gray: #8A8F96;          /* secondary text, completed-stop pins */
+  --color-light-gray: #E9ECEF;    /* light surfaces, dividers, secondary buttons */
+  --color-blue-nav: #2676D9;      /* current-vehicle marker, standard stop pins */
+  --color-orange-action: #F28C28; /* next-stop marker, primary CTA buttons */
+  --color-green-success: #20A564; /* completed indicators, success states */
+  --color-danger: #E5484D;        /* ISSUE/ATTENTION */
+
+  /* Typography System */
+  --font-family-primary: 'Inter', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  --text-h1: 24px;
+  --text-h1-line: 32px;
+  --text-body: 14px;
+  --text-body-line: 16px;
+  --text-label: 12px;
+  --text-label-line: 14px;
+  --text-caption: 11px;
+  --text-caption-line: 12px;
+}
+
+/* Typography Utility Classes */
+.text-h1 {
+  font-family: var(--font-family-primary);
+  font-size: var(--text-h1);
+  line-height: var(--text-h1-line);
+  font-weight: 700;
+}
+
+.text-body {
+  font-family: var(--font-family-primary);
+  font-size: var(--text-body);
+  line-height: var(--text-body-line);
+}
+
+.text-label {
+  font-family: var(--font-family-primary);
+  font-size: var(--text-label);
+  line-height: var(--text-label-line);
+  font-weight: 600;
+}
+
+.text-caption {
+  font-family: var(--font-family-primary);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-line);
+  font-weight: 500;
+}

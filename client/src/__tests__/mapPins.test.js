@@ -1,7 +1,9 @@
-/**
- * Automated pin-rendering scenario tests.
- * Run: node client/src/__tests__/mapPins.test.js
- */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // -- Pure functions mirrored from MapView.jsx ----------------------------------
 function getStopCoords(stop) {
@@ -27,9 +29,23 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
     stopsList.forEach((stop, idx) => {
       const coords = getStopCoords(stop);
       if (!coords) return;
-      features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: coords },
-        properties: { stopIndex: idx, stopNumber: String(idx+1), status: stop.status||'pending',
-                      isActive: idx===activeIdx, isSelected: idx===selectedIdx } });
+      const isDelivered = stop.status === 'delivered' || Boolean(stop.completedAt);
+      const isSkipped = stop.status === 'skipped';
+      let statusVal = stop.status || 'pending';
+      if (isSkipped) statusVal = 'skipped';
+      else if (isDelivered) statusVal = 'delivered';
+
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: coords },
+        properties: {
+          stopIndex: idx,
+          stopNumber: String(idx + 1),
+          status: statusVal,
+          isActive: idx === activeIdx,
+          isSelected: idx === selectedIdx
+        }
+      });
     });
   }
   return { type: 'FeatureCollection', features };
@@ -112,6 +128,33 @@ assert('Retry on idle succeeds after initial failure', (()=>{
   safeAddLayer(m,{id:'stops-pin-outer',type:'circle',source:'stops-source',paint:{}});
   return r1===false&&r2===true&&!!m.getSource('stops-source')&&!!m.getLayer('stops-pin-outer');
 })());
+
+// S5: Phase B Pin States & Z-Index Layering
+console.log('\nS5: Phase B Pin States & Z-Index Layering');
+const PHASE_B_STOPS = [
+  { address: { location: { coordinates: [-84.388, 33.749] } }, status: 'delivered' },
+  { address: { location: { coordinates: [-84.401, 33.762] } }, completedAt: '2026-09-14T09:00:00Z' }, // delivered via completedAt
+  { address: { location: { coordinates: [-84.375, 33.738] } }, status: 'pending' }, // active next stop
+  { address: { location: { coordinates: [-84.360, 33.720] } }, status: 'skipped' }, // skipped/issue
+  { address: { location: { coordinates: [-84.350, 33.710] } }, status: 'pending' }, // upcoming standard
+];
+const bGj = buildStopsGeoJSON(PHASE_B_STOPS, 2, 2); // stop index 2 is active and selected
+assert('Stop 0 is delivered', bGj.features[0].properties.status === 'delivered');
+assert('Stop 1 is delivered via completedAt', bGj.features[1].properties.status === 'delivered');
+assert('Stop 2 is active next stop', bGj.features[2].properties.isActive === true);
+assert('Stop 2 is selected', bGj.features[2].properties.isSelected === true);
+assert('Stop 3 is skipped', bGj.features[3].properties.status === 'skipped');
+assert('Stop 4 is standard upcoming', bGj.features[4].properties.status === 'pending');
+
+// Z-index hierarchy verification from CSS rules
+const cssContent = fs.readFileSync(path.join(__dirname, '../index.css'), 'utf8');
+const controlsZMatch = cssContent.match(/\.maplibre-controls-overlay[^{]*\{[^}]*z-index:\s*(\d+)/);
+const activePinZMatch = cssContent.match(/\.stop-marker-next[^{]*\{[^}]*z-index:\s*(\d+)/);
+const controlsZ = controlsZMatch ? parseInt(controlsZMatch[1], 10) : 0;
+const activePinZ = activePinZMatch ? parseInt(activePinZMatch[1], 10) : 999;
+assert('Controls z-index >= 100', controlsZ >= 100, `Found: ${controlsZ}`);
+assert('Active pin z-index < 10 (stays below controls)', activePinZ < 10, `Found: ${activePinZ}`);
+assert('Active pin is layered strictly below controls', activePinZ < controlsZ, `pin: ${activePinZ} vs controls: ${controlsZ}`);
 
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');

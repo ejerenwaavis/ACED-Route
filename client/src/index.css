@@ -530,7 +530,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 10;
+  z-index: 100; /* Stays above all map markers */
 }
 
 /* Safe area insets for fullscreen controls below notch & status bar */
@@ -546,13 +546,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  z-index: 10;
+  z-index: 100; /* Stays above all map markers */
 }
 
 .map-back-btn {
-  background: rgba(15, 23, 42, 0.9);
+  background: var(--color-graphite, #17191C);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 20px;
   padding: 6px 14px 6px 10px;
   font-size: 0.8rem;
@@ -567,15 +567,15 @@ body {
 }
 
 .map-back-btn:hover {
-  background: #1e293b;
-  color: #38bdf8;
-  border-color: #38bdf8;
+  background: #23272d;
+  color: var(--color-orange-action, #F28C28);
+  border-color: var(--color-orange-action, #F28C28);
 }
 
 .map-control-btn {
-  background: rgba(15, 23, 42, 0.9);
+  background: var(--color-graphite, #17191C);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: #e2e8f0;
   width: 38px;
   height: 38px;
@@ -589,26 +589,26 @@ body {
 }
 
 .map-control-btn:hover {
-  background: #1e293b;
-  color: #38bdf8;
-  border-color: #38bdf8;
+  background: #23272d;
+  color: var(--color-orange-action, #F28C28);
+  border-color: var(--color-orange-action, #F28C28);
 }
 
 .map-legend-pill {
   position: absolute;
   top: 10px;
   left: 10px;
-  background: rgba(15, 23, 42, 0.9);
+  background: var(--color-graphite, #17191C);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 20px;
   padding: 6px 12px;
   font-size: 0.75rem;
-  color: #38bdf8;
+  color: #f8fafc;
   display: flex;
   align-items: center;
   gap: 6px;
-  z-index: 10;
+  z-index: 100;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -616,64 +616,125 @@ body {
   position: static;
 }
 
-/* Stop Marker Styles */
+/* ─────────────────────────────────────────────────────────────────────────────
+   Phase B: Stop Pin States (Status-Based, Dark Chrome / Light Map System)
+   ───────────────────────────────────────────────────────────────────────────── */
 .stop-marker-pin {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #0284c7;
-  border: 2.5px solid #ffffff;
+  background: var(--color-blue-nav, #2676D9);
+  border: 2px solid #ffffff;
   color: #ffffff;
+  font-family: var(--font-family-primary, 'Inter', sans-serif);
   font-size: 11px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   user-select: none;
+  z-index: 3;
   /* CRITICAL: Never animate transform — MapLibre updates transform on every frame during pan */
   transition: box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   will-change: transform;
 }
 
 .stop-marker-pin:hover {
-  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.9);
+  box-shadow: 0 3px 10px rgba(38, 118, 217, 0.6);
 }
 
-.stop-marker-active {
-  background: #16a34a !important;
-  border-color: #4ade80 !important;
-  width: 36px !important;
-  height: 36px !important;
+/* 1. Next Stop (Target active stop): Orange filled circle, white number, active pulse */
+.stop-marker-active,
+.stop-marker-next {
+  background: var(--color-orange-action, #F28C28) !important;
+  border: 2.5px solid #ffffff !important;
+  color: #ffffff !important;
+  width: 34px !important;
+  height: 34px !important;
   font-size: 13px !important;
-  z-index: 25 !important;
-  box-shadow: 0 0 16px rgba(34, 197, 94, 0.9), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  z-index: 5 !important; /* Low enough to stay below controls (z-index 100) */
+  box-shadow: 0 3px 10px rgba(242, 140, 40, 0.5) !important;
+  animation: activeMarkerOrangePulse 2s infinite;
 }
 
-.stop-marker-delivered {
-  background: #334155 !important;
-  border-color: #64748b !important;
-  opacity: 0.75;
+/* 2. Standard / Upcoming Stop: Blue filled circle, white number */
+.stop-marker-standard {
+  background: var(--color-blue-nav, #2676D9) !important;
+  border: 2px solid #ffffff !important;
+  color: #ffffff !important;
+  z-index: 3 !important;
 }
 
+/* 3. Completed Stop: Gray filled circle, white number (visually recedes) */
+.stop-marker-delivered,
+.stop-marker-completed {
+  background: var(--color-gray, #8A8F96) !important;
+  border: 2px solid rgba(255, 255, 255, 0.8) !important;
+  color: #ffffff !important;
+  width: 25px !important;
+  height: 25px !important;
+  font-size: 10px !important;
+  opacity: 0.85 !important;
+  z-index: 2 !important;
+}
+
+/* 4. Issue / Skipped Stop: Danger triangle icon in #E5484D */
+.stop-marker-skipped,
+.stop-marker-issue {
+  background: var(--color-danger, #E5484D) !important;
+  border: 2px solid #ffffff !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  width: 28px !important;
+  height: 28px !important;
+  z-index: 4 !important;
+  box-shadow: 0 2px 8px rgba(229, 72, 77, 0.5) !important;
+}
+
+/* Selection ring */
 .stop-marker-selected {
-  box-shadow: 0 0 0 4px #38bdf8, 0 6px 16px rgba(0, 0, 0, 0.7) !important;
-  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 3px #ffffff, 0 0 0 6px var(--color-orange-action, #F28C28), 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  border-color: #ffffff !important;
+  z-index: 6 !important;
 }
 
+/* 5. Driver GPS Vehicle Marker: Directional arrow/chevron in Blue Navigation */
+.vehicle-marker-disk {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--color-blue-nav, #2676D9);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  z-index: 7 !important;
+  will-change: transform;
+}
 
-@keyframes activeMarkerPulse {
+.vehicle-marker-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s linear;
+}
+
+@keyframes activeMarkerOrangePulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.8);
+    box-shadow: 0 0 0 0 rgba(242, 140, 40, 0.7);
   }
   70% {
-    box-shadow: 0 0 0 12px rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 12px rgba(242, 140, 40, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 0 rgba(242, 140, 40, 0);
   }
 }
+
 
 /* Map Floating Bottom Sheet */
 .map-bottom-sheet {

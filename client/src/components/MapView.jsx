@@ -82,6 +82,12 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
       const isCurrentActive = idx === activeIdx;
       const isSelected = idx === selectedIdx;
 
+      const isDelivered = stop.status === 'delivered' || Boolean(stop.completedAt);
+      const isSkipped = stop.status === 'skipped';
+      let statusVal = stop.status || 'pending';
+      if (isSkipped) statusVal = 'skipped';
+      else if (isDelivered) statusVal = 'delivered';
+
       features.push({
         type: 'Feature',
         geometry: {
@@ -91,7 +97,7 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
         properties: {
           stopIndex: idx,
           stopNumber: String(stopNumber),
-          status: stop.status || 'pending',
+          status: statusVal,
           isActive: isCurrentActive,
           isSelected: isSelected
         }
@@ -413,12 +419,12 @@ export default function MapView({
       });
       safeAddLayer(map, {
         id: 'driver-puck-halo', type: 'circle', source: 'driver-location-source',
-        paint: { 'circle-radius': 16, 'circle-color': '#38bdf8', 'circle-opacity': 0.35,
-                 'circle-stroke-width': 2, 'circle-stroke-color': '#38bdf8' }
+        paint: { 'circle-radius': 18, 'circle-color': '#2676D9', 'circle-opacity': 0.25,
+                 'circle-stroke-width': 1.5, 'circle-stroke-color': '#2676D9' }
       });
       safeAddLayer(map, {
         id: 'driver-puck-core', type: 'circle', source: 'driver-location-source',
-        paint: { 'circle-radius': 7.5, 'circle-color': '#0284c7',
+        paint: { 'circle-radius': 8, 'circle-color': '#2676D9',
                  'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' }
       });
 
@@ -435,17 +441,19 @@ export default function MapView({
       safeAddLayer(map, {
         id: 'stops-active-halo', type: 'circle', source: 'stops-source',
         filter: ['==', ['get', 'isActive'], true],
-        paint: { 'circle-radius': 22, 'circle-color': '#22c55e', 'circle-opacity': 0.4,
-                 'circle-stroke-width': 2, 'circle-stroke-color': '#4ade80' }
+        paint: { 'circle-radius': 22, 'circle-color': '#F28C28', 'circle-opacity': 0.35,
+                 'circle-stroke-width': 2, 'circle-stroke-color': '#F28C28' }
       });
       const pinOk = safeAddLayer(map, {
         id: 'stops-pin-outer', type: 'circle', source: 'stops-source',
         paint: {
           'circle-radius': ['case', ['==', ['get', 'isSelected'], true], 17,
-                                   ['==', ['get', 'isActive'], true], 15, 12.5],
-          'circle-color': ['case', ['==', ['get', 'isSelected'], true], '#38bdf8',
-                                   ['==', ['get', 'isActive'], true], '#16a34a',
-                                   ['==', ['get', 'status'], 'delivered'], '#334155', '#0284c7'],
+                                   ['==', ['get', 'isActive'], true], 16,
+                                   ['==', ['get', 'status'], 'delivered'], 12, 13],
+          'circle-color': ['case', ['==', ['get', 'isSelected'], true], '#F28C28',
+                                   ['==', ['get', 'isActive'], true], '#F28C28',
+                                   ['==', ['get', 'status'], 'skipped'], '#E5484D',
+                                   ['==', ['get', 'status'], 'delivered'], '#8A8F96', '#2676D9'],
           'circle-stroke-width': ['case', ['==', ['get', 'isSelected'], true], 3,
                                           ['==', ['get', 'isActive'], true], 2.5, 2],
           'circle-stroke-color': '#ffffff'
@@ -691,13 +699,26 @@ export default function MapView({
 
       const isCurrentActive = idx === activeIndex;
       const isSelected = idx === selectedStopIndex;
-      const isDelivered = stop.status === 'delivered';
+      const isDelivered = stop.status === 'delivered' || Boolean(stop.completedAt);
+      const isSkipped = stop.status === 'skipped';
 
       const el = document.createElement('div');
-      el.className = `stop-marker-pin ${isCurrentActive ? 'stop-marker-active' : ''} ${
-        isDelivered ? 'stop-marker-delivered' : ''
-      } ${isSelected ? 'stop-marker-selected' : ''}`;
-      el.innerText = `${idx + 1}`;
+      let stateClass = 'stop-marker-standard';
+      if (isCurrentActive) {
+        stateClass = 'stop-marker-next';
+      } else if (isSkipped) {
+        stateClass = 'stop-marker-skipped';
+      } else if (isDelivered) {
+        stateClass = 'stop-marker-completed';
+      }
+
+      el.className = `stop-marker-pin ${stateClass} ${isSelected ? 'stop-marker-selected' : ''}`;
+
+      if (isSkipped) {
+        el.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+      } else {
+        el.innerText = `${idx + 1}`;
+      }
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -728,21 +749,27 @@ export default function MapView({
       const lng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation.longitude;
       const lat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation.latitude;
       const lngLat = [lng, lat];
+      const bearing = (driverLocation && typeof driverLocation === 'object' && !Array.isArray(driverLocation))
+        ? (driverLocation.heading ?? driverLocation.bearing ?? 0)
+        : 0;
 
       if (!driverMarkerRef.current) {
         const el = document.createElement('div');
-        el.style.width = '20px';
-        el.style.height = '20px';
-        el.style.borderRadius = '50%';
-        el.style.background = '#0284c7';
-        el.style.border = '3px solid #ffffff';
-        el.style.boxShadow = '0 0 14px rgba(56, 189, 248, 0.9)';
-        el.style.willChange = 'transform';
+        el.className = 'vehicle-marker-disk';
+        const arrow = document.createElement('div');
+        arrow.className = 'vehicle-marker-arrow';
+        arrow.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="#2676D9"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>`;
+        arrow.style.transform = `rotate(${bearing || 0}deg)`;
+        el.appendChild(arrow);
         driverMarkerRef.current = new Marker({ element: el })
           .setLngLat(lngLat)
           .addTo(map);
       } else {
         driverMarkerRef.current.setLngLat(lngLat);
+        const arrowEl = driverMarkerRef.current.getElement()?.querySelector('.vehicle-marker-arrow');
+        if (arrowEl && bearing != null) {
+          arrowEl.style.transform = `rotate(${bearing}deg)`;
+        }
       }
     } else if (driverMarkerRef.current) {
       driverMarkerRef.current.remove();
