@@ -110,6 +110,9 @@ export default function App() {
         onAuthChange={(u) => {
           setUser(u);
         }}
+        activeManifest={activeManifest}
+        stops={sequencedStops}
+        activeTab={activeTab}
       />
 
       {/* Navigation Bar */}

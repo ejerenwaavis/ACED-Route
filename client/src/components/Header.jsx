@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud } from 'lucide-react';
+import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud, ChevronDown, User, Route as RouteIcon } from 'lucide-react';
 import { getUser, removeToken, getApiBase, setApiBase } from '../services/api';
 import OfflineMapsModal from './OfflineMapsModal';
 import AppUpdateModal from './AppUpdateModal';
 import { getLanguage, setLanguage, onLanguageChange, t } from '../utils/i18n';
 
-export default function Header({ user, onAuthChange, onOpenLogin }) {
+export default function Header({ user, onAuthChange, onOpenLogin, activeManifest, stops, activeTab }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [customApi, setCustomApi] = useState(getApiBase());
   const [lang, setLangState] = useState(getLanguage());
+
+  const totalStops = stops?.length || 0;
+  const deliveredStops = (stops || []).filter((s) => s.status === 'delivered').length;
+  const progressPercent = totalStops > 0 ? Math.round((deliveredStops / totalStops) * 100) : 0;
+  const routeName = activeManifest?.title ||
+                    activeManifest?.name ||
+                    (activeManifest?.filename ? activeManifest.filename.replace(/\.[^/.]+$/, '').slice(0, 16) : 'Route 1');
 
   useEffect(() => {
     return onLanguageChange((newLang) => setLangState(newLang));
@@ -36,14 +43,37 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
     <>
       <header className="app-header">
         <div className="brand-badge">
-          <div className="logo-icon">
-            <Navigation size={18} />
+          <div className="logo-icon header-logo-dark">
+            <Navigation size={17} />
           </div>
           <div>
             <div className="brand-title">ACED Route</div>
             <div className="brand-subtitle">Driver Delivery & Routing</div>
           </div>
         </div>
+
+        {totalStops > 0 && (
+          <div className="header-route-center">
+            <div className="header-route-pill" title={routeName}>
+              <span className="route-pill-dot" />
+              <span className="route-pill-name">{routeName}</span>
+              <ChevronDown size={13} color="var(--color-gray, #8A8F96)" />
+            </div>
+
+            <div
+              className="header-progress-pill"
+              title={`${deliveredStops} of ${totalStops} delivered (${progressPercent}%)`}
+            >
+              <span className="header-progress-text">{deliveredStops}/{totalStops}</span>
+              <div className="header-progress-track">
+                <div
+                  className="header-progress-fill"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="header-actions">
           <button
@@ -86,25 +116,17 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
 
           {user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span
-                className="user-name-text"
-                style={{
-                  fontSize: '0.8rem',
-                  color: '#94a3b8',
-                  fontWeight: 500,
-                  maxWidth: '110px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
+              <div
+                className="header-avatar-btn"
+                title={`${user.name || user.email || 'Driver'} (Signed in)`}
               >
-                {(user.name || user.email || 'Driver').split(' ')[0]}
-              </span>
+                <User size={15} />
+              </div>
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={handleLogout}
                 title="Sign Out"
-                style={{ padding: '0.35rem 0.5rem' }}
+                style={{ padding: '0.35rem 0.5rem', borderRadius: '8px' }}
               >
                 <LogOut size={14} />
               </button>

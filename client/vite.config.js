@@ -9,6 +9,9 @@ export default defineConfig({
     outDir: path.resolve(__dirname, '../public_html'),
     emptyOutDir: true,
   },
+  define: {
+    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   server: {
     port: 5173,
     proxy: {

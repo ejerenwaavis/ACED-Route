@@ -356,6 +356,8 @@ public class AcedRoutingPlugin extends Plugin {
             res.put("versionCode", versionCode);
             res.put("versionName", pInfo.versionName != null ? pInfo.versionName : "1.0");
             res.put("packageName", getContext().getPackageName());
+            res.put("lastUpdateTime", pInfo.lastUpdateTime);
+            res.put("firstInstallTime", pInfo.firstInstallTime);
             call.resolve(res);
         } catch (Exception e) {
             Log.e(TAG, "Failed to get app version", e);

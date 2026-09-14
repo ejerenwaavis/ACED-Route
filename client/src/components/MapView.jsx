@@ -17,13 +17,18 @@ import {
   Minus,
   Sun,
   Moon,
-  ChevronLeft
+  ChevronLeft,
+  Clock,
+  MapPin,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 import { registerPMTilesProtocol, resolvePmtilesUrl } from '../utils/pmtilesProtocol';
 import { buildMapStyle } from '../utils/mapStyle';
 import { routingService } from '../services/routing';
 import NavigationGuidanceBanner from './NavigationGuidanceBanner';
 import { useLanguage } from '../utils/i18n';
+import { haversineDistance } from '../utils/geoUtils';
 
 /**
  * Helper to extract valid [lng, lat] from any stop shape.
@@ -260,6 +265,8 @@ export default function MapView({
   guidance = null,
   isNavigating = false,
   onExitNavigation = null,
+  onMarkDelivered = null,
+  onSkipStop = null,
 }) {
   const { t } = useLanguage();
   const mapContainerRef = useRef(null);
@@ -925,7 +932,22 @@ export default function MapView({
               <ChevronLeft size={18} />
               <span>{isNavigating ? t('exitNav') : t('back')}</span>
             </button>
-            <div className="map-legend-pill">
+            {stops && stops.length > 0 && (
+              <div className="header-progress-pill" style={{ padding: '0.3rem 0.65rem', zIndex: 100 }}>
+                <span className="header-progress-text">
+                  {stops.filter((s) => s.status === 'delivered').length}/{stops.length}
+                </span>
+                <div className="header-progress-track" style={{ width: '42px' }}>
+                  <div
+                    className="header-progress-fill"
+                    style={{
+                      width: `${(stops.filter((s) => s.status === 'delivered').length / stops.length) * 100}%`
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="map-legend-pill" style={{ position: 'static' }}>
               <ShieldCheck size={13} />
               <span>{mapTheme === 'street' ? t('vectorStreet') : t('nightMode')}</span>
             </div>
@@ -986,80 +1008,134 @@ export default function MapView({
           </button>
         </div>
 
-        {/* Floating Bottom Sheet for Selected Stop */}
-        {selectedStop && (
-          <div className="map-bottom-sheet">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
-              <div>
-                <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>
-                  {t('stopOf', { current: selectedStopIndex + 1, total: stops.length })}
+        {/* Floating Bottom Sheet for Selected Stop or Active Stop in Fullscreen (Phase C) */}
+        {(() => {
+          const activeStop = stops && stops[activeIndex] ? stops[activeIndex] : null;
+          const displayStop = selectedStop || (isFullscreen ? activeStop : null);
+          const displayStopIndex = selectedStop ? selectedStopIndex : activeIndex;
+          const isDisplayNextStop = displayStopIndex === activeIndex;
+
+          if (!displayStop) return null;
+
+          // Distance and ETA to displayStop
+          let sheetDistanceStr = null;
+          let sheetEtaStr = null;
+          const targetCoords = getStopCoords(displayStop);
+          if (targetCoords) {
+            const dlLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
+            const dlLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
+            if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+              const distMeters = haversineDistance(dlLat, dlLng, targetCoords[1], targetCoords[0]);
+              const miles = distMeters * 0.000621371;
+              sheetDistanceStr = `${miles.toFixed(1)} mi`;
+              sheetEtaStr = `${Math.max(1, Math.round(miles * 2.5))} min`;
+            }
+          }
+
+          return (
+            <div className="map-bottom-sheet">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                <span className="next-stop-pill">
+                  {isDisplayNextStop ? (displayStopIndex === 0 ? 'START ROUTE' : 'NEXT STOP') : `STOP ${displayStopIndex + 1}`}
                 </span>
-                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', marginTop: '0.2rem' }}>
-                  {selectedStop.address?.street || selectedStop.address?.raw || t('stopDetails')}
+                {selectedStop && (
+                  <button
+                    onClick={() => {
+                      setSelectedStop(null);
+                      setSelectedStopIndex(null);
+                    }}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-gray, #8A8F96)', cursor: 'pointer', padding: '0.25rem' }}
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.8rem', marginBottom: '0.75rem' }}>
+                <div className="next-stop-number-badge">
+                  {displayStopIndex + 1}
                 </div>
-                <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-                  {[selectedStop.address?.city, selectedStop.address?.state, selectedStop.address?.postalCode].filter(Boolean).join(', ')}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FFFFFF', lineHeight: 1.25 }}>
+                    {displayStop.recipient || displayStop.address?.recipient || displayStop.address?.street || displayStop.address?.raw || t('stopDetails')}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-gray, #8A8F96)', marginTop: '2px' }}>
+                    {[displayStop.address?.city, displayStop.address?.state, displayStop.address?.postalCode].filter(Boolean).join(', ')}
+                  </div>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setSelectedStop(null);
-                  setSelectedStopIndex(null);
-                }}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.25rem' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
 
-            {/* Extra stop meta */}
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.65rem' }}>
-              {selectedStop.trackingNumber && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <Tag size={12} />
-                  <span>{t('package')}: {selectedStop.trackingNumber}</span>
-                </div>
-              )}
-              {selectedStop.address?.gateCode && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#38bdf8' }}>
-                  <Key size={12} />
-                  <span>{t('gate')}: #{selectedStop.address.gateCode}</span>
-                </div>
-              )}
-            </div>
+              {/* Distance & ETA + Tags */}
+              <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.75rem', color: 'var(--color-gray, #8A8F96)', marginBottom: '0.85rem' }}>
+                {sheetDistanceStr && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#FFFFFF', fontWeight: 600 }}>
+                    <Navigation size={13} color="var(--color-blue-nav, #2676D9)" />
+                    <span>{sheetDistanceStr}</span>
+                    {sheetEtaStr && <span style={{ color: 'var(--color-gray, #8A8F96)', fontWeight: 400 }}>• {sheetEtaStr}</span>}
+                  </div>
+                )}
 
-            {/* Bottom Sheet Actions */}
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {selectedStopIndex !== activeIndex && (
+                {displayStop.trackingNumber && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <Tag size={12} />
+                    <span>{t('package')}: {displayStop.trackingNumber}</span>
+                  </div>
+                )}
+
+                {displayStop.address?.gateCode && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#fbbf24', fontWeight: 600 }}>
+                    <Key size={12} />
+                    <span>Gate: #{displayStop.address.gateCode}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Full-width Navigate Action Button */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <button
-                  className="btn btn-primary btn-sm"
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  className="btn-navigate-action"
                   onClick={() => {
-                    if (onNavigateHere) onNavigateHere(selectedStopIndex);
+                    if (onNavigateHere) onNavigateHere(displayStopIndex);
                     setSelectedStop(null);
                   }}
                 >
-                  <Navigation size={14} />
-                  <span>{t('navigateHere')}</span>
+                  <Navigation size={17} />
+                  <span>
+                    {displayStopIndex === activeIndex
+                      ? (isNavigating ? t('resumeNavigation') : t('startNavigationToStop', { number: displayStopIndex + 1 }))
+                      : t('navigateHere')}
+                  </span>
                 </button>
-              )}
 
-              {onNavigateInSequence && selectedStopIndex === activeIndex && activeIndex < stops.length - 1 && (
-                <button
-                  className="btn btn-secondary btn-sm"
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                  onClick={() => {
-                    onNavigateInSequence();
-                    setSelectedStop(null);
-                  }}
-                >
-                  <ArrowRight size={14} />
-                  <span>{t('nextInSequence')}</span>
-                </button>
-              )}
+                {/* In-sequence delivery actions if viewing next stop */}
+                {isDisplayNextStop && (onMarkDelivered || onSkipStop) && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                    {onMarkDelivered && (
+                      <button
+                        className="btn btn-success btn-sm"
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.55rem', borderRadius: '10px' }}
+                        onClick={onMarkDelivered}
+                      >
+                        <CheckCircle2 size={15} />
+                        <span>{t('delivered')}</span>
+                      </button>
+                    )}
+                    {onSkipStop && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.55rem', borderRadius: '10px' }}
+                        onClick={onSkipStop}
+                      >
+                        <AlertTriangle size={15} color="#f59e0b" />
+                        <span>{t('skipAttempt')}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

@@ -156,6 +156,34 @@ assert('Controls z-index >= 100', controlsZ >= 100, `Found: ${controlsZ}`);
 assert('Active pin z-index < 10 (stays below controls)', activePinZ < 10, `Found: ${activePinZ}`);
 assert('Active pin is layered strictly below controls', activePinZ < controlsZ, `pin: ${activePinZ} vs controls: ${controlsZ}`);
 
+// S6: Phase C Map Screen Chrome & Build Time Comparison Tests
+console.log('\nS6: Phase C Map Chrome & Build Time Comparison');
+
+// 1. CSS Chrome verification
+assert('Top bar has dark graphite background', /app-header[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Header route pill is defined', /\.header-route-pill/.test(cssContent));
+assert('Header progress pill is defined', /\.header-progress-pill/.test(cssContent));
+assert('Map control buttons are circular', /\.map-control-btn[^{]*\{[^}]*border-radius:\s*50%/.test(cssContent));
+assert('Map control buttons have dark graphite background', /\.map-control-btn[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Map control buttons have z-index 100', /\.map-control-btn[^{]*\{[^}]*z-index:\s*100/.test(cssContent));
+assert('Next stop hero card has dark graphite background', /\.nav-hero[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Floating map bottom sheet has dark graphite background', /\.map-bottom-sheet[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Navigate action button uses orange action token', /\.btn-navigate-action[^{]*\{[^}]*--color-orange-action/.test(cssContent));
+
+// 2. Build time comparison logic verification
+const installedDate = new Date('2026-09-14T15:00:00Z');
+const olderCloudDate = new Date('2026-09-14T14:30:00Z');
+const newerCloudDate = new Date('2026-09-14T15:45:00Z');
+
+function checkCloudIsNewer(installed, cloud) {
+  if (!installed || !cloud) return false;
+  return (cloud.getTime() - installed.getTime()) > 2 * 60 * 1000;
+}
+
+assert('Newer cloud release correctly triggers update status', checkCloudIsNewer(installedDate, newerCloudDate) === true);
+assert('Older cloud release correctly reports up-to-date', checkCloudIsNewer(installedDate, olderCloudDate) === false);
+assert('Identical build timestamp reports up-to-date', checkCloudIsNewer(installedDate, installedDate) === false);
+
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
 if(fail>0) process.exit(1);

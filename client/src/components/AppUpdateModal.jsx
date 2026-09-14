@@ -156,134 +156,243 @@ export default function AppUpdateModal({ isOpen, onClose }) {
         </div>
 
         {checking ? (
-          <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+          <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
             <RefreshCw size={28} className="spin" style={{ color: 'var(--color-blue-nav, #2676D9)', marginBottom: '0.75rem' }} />
-            <div style={{ fontSize: '0.9rem', color: '#FFFFFF' }}>Checking for latest release...</div>
+            <div style={{ fontSize: '0.9rem', color: '#FFFFFF', fontWeight: 600 }}>Checking update servers...</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-gray, #8A8F96)', marginTop: '0.25rem' }}>Comparing installed build with GitHub releases</div>
           </div>
-        ) : (
-          <div>
-            <div
-              style={{
-                background: 'rgba(34, 37, 42, 0.8)',
-                border: '1px solid #2E3238',
-                borderRadius: '12px',
-                padding: '1rem',
-                marginBottom: '1.25rem'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#FFFFFF' }}>
-                  {releaseInfo?.name || 'Latest APK Build'}
-                </span>
+        ) : (() => {
+          const installedTime = currentVersion.lastUpdateTime
+            ? new Date(currentVersion.lastUpdateTime)
+            : (typeof __APP_BUILD_TIME__ !== 'undefined' ? new Date(__APP_BUILD_TIME__) : null);
+          const cloudTime = releaseInfo?.publishedAt ? new Date(releaseInfo.publishedAt) : null;
+
+          // Difference in ms: positive means cloud is newer
+          const diffMs = (cloudTime && installedTime) ? (cloudTime.getTime() - installedTime.getTime()) : 0;
+          // Threshold: if cloud build is more than 2 minutes newer, consider it an update
+          const isCloudNewer = diffMs > 2 * 60 * 1000;
+
+          const formatTimestamp = (d) => {
+            if (!d || isNaN(d.getTime())) return 'Unknown';
+            return d.toLocaleString([], {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            });
+          };
+
+          const formatRelativeDiff = () => {
+            if (!isCloudNewer) return null;
+            const diffMin = Math.round(diffMs / 60000);
+            if (diffMin < 60) return `${diffMin} min newer`;
+            const diffHours = Math.round(diffMin / 60);
+            if (diffHours < 24) return `${diffHours} hr${diffHours > 1 ? 's' : ''} newer`;
+            const diffDays = Math.round(diffHours / 24);
+            return `${diffDays} day${diffDays > 1 ? 's' : ''} newer`;
+          };
+
+          return (
+            <div>
+              {/* Status Comparison Badge Banner */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.85rem 1rem',
+                  borderRadius: '12px',
+                  background: isCloudNewer ? 'rgba(242, 140, 40, 0.12)' : 'rgba(32, 165, 100, 0.12)',
+                  border: `1px solid ${isCloudNewer ? 'rgba(242, 140, 40, 0.35)' : 'rgba(32, 165, 100, 0.35)'}`,
+                  marginBottom: '1.25rem'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  {isCloudNewer ? (
+                    <AlertTriangle size={20} style={{ color: 'var(--color-orange-action, #F28C28)', flexShrink: 0 }} />
+                  ) : (
+                    <CheckCircle2 size={20} style={{ color: 'var(--color-green-success, #20A564)', flexShrink: 0 }} />
+                  )}
+                  <div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: isCloudNewer ? '#FFFFFF' : '#20A564' }}>
+                      {isCloudNewer ? 'Newer Build Available' : 'Your App is Up to Date'}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: isCloudNewer ? '#FFD4A8' : '#A7F3D0' }}>
+                      {isCloudNewer
+                        ? `Cloud release is ${formatRelativeDiff()} than installed version.`
+                        : 'Installed build matches or is newer than the cloud build.'}
+                    </div>
+                  </div>
+                </div>
                 <span
                   style={{
-                    fontSize: '0.7rem',
+                    fontSize: '0.68rem',
                     fontWeight: 700,
-                    padding: '0.2rem 0.5rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    padding: '0.25rem 0.6rem',
                     borderRadius: '6px',
-                    background: 'rgba(32, 165, 100, 0.15)',
-                    color: 'var(--color-green-success, #20A564)'
+                    background: isCloudNewer ? 'var(--color-orange-action, #F28C28)' : 'var(--color-green-success, #20A564)',
+                    color: '#FFFFFF'
                   }}
                 >
-                  Verified Keystore
+                  {isCloudNewer ? 'Update' : 'Current'}
                 </span>
               </div>
 
-              <div style={{ fontSize: '0.75rem', color: 'var(--color-gray, #8A8F96)', marginBottom: '0.75rem' }}>
-                {releaseInfo?.publishedAt
-                  ? `Built on ${new Date(releaseInfo.publishedAt).toLocaleString()}`
-                  : 'Latest signed production binary'}
-                {' • '}
-                {releaseInfo?.sizeMB || '4.6'} MB
+              {/* Side-by-Side Comparison Card */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '0.75rem',
+                  marginBottom: '1.25rem'
+                }}
+              >
+                {/* Installed App Card */}
+                <div
+                  style={{
+                    background: 'rgba(23, 25, 28, 0.9)',
+                    border: '1px solid #2E3238',
+                    borderRadius: '12px',
+                    padding: '0.85rem'
+                  }}
+                >
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--color-gray, #8A8F96)', fontWeight: 600, marginBottom: '0.35rem' }}>
+                    Currently Installed
+                  </div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+                    v{currentVersion.versionName} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#8A8F96' }}>(#{currentVersion.versionCode})</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#D1D5DB' }}>
+                    Built:
+                  </div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 600, color: isCloudNewer ? '#8A8F96' : '#20A564' }}>
+                    {formatTimestamp(installedTime)}
+                  </div>
+                </div>
+
+                {/* Cloud Build Card */}
+                <div
+                  style={{
+                    background: isCloudNewer ? 'rgba(38, 118, 217, 0.08)' : 'rgba(23, 25, 28, 0.9)',
+                    border: `1px solid ${isCloudNewer ? 'var(--color-blue-nav, #2676D9)' : '#2E3238'}`,
+                    borderRadius: '12px',
+                    padding: '0.85rem'
+                  }}
+                >
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: isCloudNewer ? 'var(--color-blue-nav, #2676D9)' : 'var(--color-gray, #8A8F96)', fontWeight: 600, marginBottom: '0.35rem' }}>
+                    Cloud Release
+                  </div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+                    {releaseInfo?.tag || 'latest-apk'} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#8A8F96' }}>({releaseInfo?.sizeMB || '4.6'} MB)</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#D1D5DB' }}>
+                    Built:
+                  </div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 600, color: isCloudNewer ? 'var(--color-orange-action, #F28C28)' : '#8A8F96' }}>
+                    {formatTimestamp(cloudTime)}
+                  </div>
+                </div>
               </div>
 
               <div
                 style={{
-                  fontSize: '0.8rem',
+                  fontSize: '0.78rem',
                   lineHeight: '1.4',
-                  color: '#D1D5DB',
+                  color: '#9CA3AF',
                   background: 'rgba(0, 0, 0, 0.25)',
-                  padding: '0.65rem 0.75rem',
-                  borderRadius: '8px'
+                  padding: '0.65rem 0.85rem',
+                  borderRadius: '8px',
+                  marginBottom: '1rem',
+                  border: '1px solid rgba(255, 255, 255, 0.05)'
                 }}
               >
-                In-place update supported. Tapping install will update your app directly without uninstalling, preserving all downloaded maps and local data.
+                In-place update supported via permanent signing keystore. Installing updates directly over your installed app without deleting local offline maps or manifest data.
+              </div>
+
+              {errorMessage && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.75rem',
+                    background: 'rgba(229, 72, 77, 0.12)',
+                    border: '1px solid rgba(229, 72, 77, 0.3)',
+                    borderRadius: '8px',
+                    color: '#E5484D',
+                    fontSize: '0.8rem',
+                    marginBottom: '1rem'
+                  }}
+                >
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {statusMessage && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.75rem',
+                    background: 'rgba(32, 165, 100, 0.12)',
+                    border: '1px solid rgba(32, 165, 100, 0.3)',
+                    borderRadius: '8px',
+                    color: '#20A564',
+                    fontSize: '0.8rem',
+                    marginBottom: '1rem'
+                  }}
+                >
+                  <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+                  <span>{statusMessage}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={checkForUpdates}
+                  disabled={downloading}
+                  style={{ flex: '1', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.4rem', padding: '0.7rem' }}
+                >
+                  <RefreshCw size={14} />
+                  <span>Check Again</span>
+                </button>
+
+                <button
+                  className="btn btn-primary"
+                  onClick={handleInstallUpdate}
+                  disabled={downloading}
+                  style={{
+                    flex: '2',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.7rem',
+                    background: isCloudNewer ? 'var(--color-orange-action, #F28C28)' : '#2A2E35',
+                    borderColor: isCloudNewer ? 'var(--color-orange-action, #F28C28)' : '#3E444E',
+                    color: '#FFFFFF',
+                    fontWeight: 600
+                  }}
+                >
+                  <DownloadCloud size={16} />
+                  <span>
+                    {downloading
+                      ? 'Downloading...'
+                      : isCloudNewer
+                        ? 'Install Update'
+                        : 'Reinstall Build'}
+                  </span>
+                </button>
               </div>
             </div>
-
-            {errorMessage && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem',
-                  background: 'rgba(229, 72, 77, 0.12)',
-                  border: '1px solid rgba(229, 72, 77, 0.3)',
-                  borderRadius: '8px',
-                  color: '#E5484D',
-                  fontSize: '0.8rem',
-                  marginBottom: '1rem'
-                }}
-              >
-                <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {statusMessage && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem',
-                  background: 'rgba(32, 165, 100, 0.12)',
-                  border: '1px solid rgba(32, 165, 100, 0.3)',
-                  borderRadius: '8px',
-                  color: '#20A564',
-                  fontSize: '0.8rem',
-                  marginBottom: '1rem'
-                }}
-              >
-                <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
-                <span>{statusMessage}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button
-                className="btn btn-secondary"
-                onClick={checkForUpdates}
-                disabled={downloading}
-                style={{ flex: '1', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.4rem', padding: '0.65rem' }}
-              >
-                <RefreshCw size={14} />
-                <span>Check Again</span>
-              </button>
-
-              <button
-                className="btn btn-primary"
-                onClick={handleInstallUpdate}
-                disabled={downloading}
-                style={{
-                  flex: '2',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.65rem',
-                  background: 'var(--color-orange-action, #F28C28)',
-                  borderColor: 'var(--color-orange-action, #F28C28)',
-                  fontWeight: 600
-                }}
-              >
-                <DownloadCloud size={16} />
-                <span>{downloading ? 'Downloading...' : 'Install Update'}</span>
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
