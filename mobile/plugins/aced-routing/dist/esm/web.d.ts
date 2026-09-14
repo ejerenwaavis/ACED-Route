@@ -10,5 +10,16 @@ export declare class AcedRoutingWeb extends WebPlugin implements AcedRoutingPlug
     stopNavigationTracking(): Promise<void>;
     speak(options: SpeakOptions): Promise<void>;
     stopSpeech(): Promise<void>;
+    getAppVersion(): Promise<{
+        versionCode: number;
+        versionName: string;
+        packageName: string;
+    }>;
+    installApk(options: {
+        apkUrl: string;
+    }): Promise<{
+        success: boolean;
+        message?: string;
+    }>;
 }
 //# sourceMappingURL=web.d.ts.map

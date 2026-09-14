@@ -118,4 +118,20 @@ export class AcedRoutingWeb extends WebPlugin implements AcedRoutingPlugin {
       window.speechSynthesis.cancel();
     }
   }
+
+  async getAppVersion(): Promise<{ versionCode: number; versionName: string; packageName: string }> {
+    return {
+      versionCode: 1,
+      versionName: '1.0.0',
+      packageName: 'com.aceddivisionllc.acedroute'
+    };
+  }
+
+  async installApk(options: { apkUrl: string }): Promise<{ success: boolean; message?: string }> {
+    if (typeof window !== 'undefined') {
+      window.open(options.apkUrl, '_blank');
+      return { success: true, message: 'Opened APK download in browser' };
+    }
+    return { success: false, message: 'Web environment cannot execute APK' };
+  }
 }

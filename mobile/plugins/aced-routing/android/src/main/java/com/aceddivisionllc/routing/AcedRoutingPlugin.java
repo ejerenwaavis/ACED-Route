@@ -17,7 +17,18 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.provider.Settings;
+import androidx.core.content.FileProvider;
+
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -328,6 +339,110 @@ public class AcedRoutingPlugin extends Plugin {
             } catch (Exception ignored) {}
         }
         call.resolve();
+    }
+
+    @PluginMethod
+    public void getAppVersion(PluginCall call) {
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            PackageInfo pInfo = pm.getPackageInfo(getContext().getPackageName(), 0);
+            long versionCode;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                versionCode = pInfo.getLongVersionCode();
+            } else {
+                versionCode = pInfo.versionCode;
+            }
+            JSObject res = new JSObject();
+            res.put("versionCode", versionCode);
+            res.put("versionName", pInfo.versionName != null ? pInfo.versionName : "1.0");
+            res.put("packageName", getContext().getPackageName());
+            call.resolve(res);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to get app version", e);
+            call.reject("Failed to get app version: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void installApk(PluginCall call) {
+        String apkUrl = call.getString("apkUrl");
+        if (apkUrl == null || apkUrl.isEmpty()) {
+            call.reject("apkUrl is required");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (!getContext().getPackageManager().canRequestPackageInstalls()) {
+                        Intent manageUnknown = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                        manageUnknown.setData(Uri.parse("package:" + getContext().getPackageName()));
+                        manageUnknown.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        getContext().startActivity(manageUnknown);
+                    }
+                }
+
+                File cacheDir = getContext().getExternalCacheDir();
+                if (cacheDir == null) {
+                    cacheDir = getContext().getCacheDir();
+                }
+                File destFile = new File(cacheDir, "acedroute-update.apk");
+                if (destFile.exists()) {
+                    destFile.delete();
+                }
+
+                Log.i(TAG, "Downloading update APK from: " + apkUrl);
+                URL url = new URL(apkUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setInstanceFollowRedirects(true);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(30000);
+                conn.setRequestProperty("User-Agent", "ACED-Route-Android");
+
+                int status = conn.getResponseCode();
+                if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
+                    String newUrl = conn.getHeaderField("Location");
+                    conn.disconnect();
+                    conn = (HttpURLConnection) new URL(newUrl).openConnection();
+                    conn.setRequestProperty("User-Agent", "ACED-Route-Android");
+                }
+
+                try (InputStream in = conn.getInputStream();
+                     OutputStream out = new FileOutputStream(destFile)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                    out.flush();
+                } finally {
+                    conn.disconnect();
+                }
+
+                Log.i(TAG, "Update APK downloaded successfully. Size: " + destFile.length() + " bytes");
+
+                Uri apkUri = FileProvider.getUriForFile(
+                    getContext(),
+                    getContext().getPackageName() + ".fileprovider",
+                    destFile
+                );
+
+                Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                getContext().startActivity(installIntent);
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("message", "Installer opened");
+                call.resolve(ret);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to download/install APK", e);
+                call.reject("Failed to install APK: " + e.getMessage());
+            }
+        }).start();
     }
 
     @Override

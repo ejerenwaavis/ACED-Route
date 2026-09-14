@@ -201,6 +201,16 @@ export interface AcedRoutingPlugin {
   stopSpeech(): Promise<void>;
 
   /**
+   * Retrieves current installed application version and package info.
+   */
+  getAppVersion(): Promise<{ versionCode: number; versionName: string; packageName: string }>;
+
+  /**
+   * Downloads an APK from the specified URL and initiates the Android Package Installer.
+   */
+  installApk(options: { apkUrl: string }): Promise<{ success: boolean; message?: string }>;
+
+  /**
    * Subscribes to real-time navigation GPS location updates.
    */
   addListener(

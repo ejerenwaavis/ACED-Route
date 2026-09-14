@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe } from 'lucide-react';
+import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud } from 'lucide-react';
 import { getUser, removeToken, getApiBase, setApiBase } from '../services/api';
 import OfflineMapsModal from './OfflineMapsModal';
+import AppUpdateModal from './AppUpdateModal';
 import { getLanguage, setLanguage, onLanguageChange, t } from '../utils/i18n';
 
 export default function Header({ user, onAuthChange, onOpenLogin }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [customApi, setCustomApi] = useState(getApiBase());
   const [lang, setLangState] = useState(getLanguage());
 
@@ -70,6 +72,16 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
           >
             <Server size={14} />
             <span style={{ fontSize: '0.75rem' }}>API</span>
+          </button>
+
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowUpdateModal(true)}
+            title="Check for Software Updates"
+            style={{ fontWeight: 600, fontSize: '0.75rem', padding: '0.35rem 0.6rem', color: 'var(--color-orange-action, #F28C28)' }}
+          >
+            <DownloadCloud size={13} />
+            <span>Update</span>
           </button>
 
           {user ? (
@@ -165,6 +177,11 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
       <OfflineMapsModal
         isOpen={showOfflineMaps}
         onClose={() => setShowOfflineMaps(false)}
+      />
+
+      <AppUpdateModal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
       />
     </>
   );

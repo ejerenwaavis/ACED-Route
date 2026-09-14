@@ -77,4 +77,18 @@ export class AcedRoutingWeb extends WebPlugin {
             window.speechSynthesis.cancel();
         }
     }
+    async getAppVersion() {
+        return {
+            versionCode: 1,
+            versionName: '1.0.0',
+            packageName: 'com.aceddivisionllc.acedroute'
+        };
+    }
+    async installApk(options) {
+        if (typeof window !== 'undefined') {
+            window.open(options.apkUrl, '_blank');
+            return { success: true, message: 'Opened APK download in browser' };
+        }
+        return { success: false, message: 'Web environment cannot execute APK' };
+    }
 }
