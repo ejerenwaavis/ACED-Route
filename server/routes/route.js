@@ -60,20 +60,60 @@ async function queryValhalla(payload) {
     // Local container unreachable or still building tiles
   }
 
-  // 2. Fallback to live Valhalla instance
+  // 2. Fallback to live Valhalla instance (with parallel chunking for > 10 locations)
   if (VALHALLA_BASE !== VALHALLA_FALLBACK) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 7000);
-      const res = await fetch(`${VALHALLA_FALLBACK}/route`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      if (res.ok) {
-        return await res.json();
+      if (payload.locations && payload.locations.length > 10) {
+        const locations = payload.locations;
+        const chunks = [];
+        for (let i = 0; i < locations.length - 1; i += 9) {
+          const slice = locations.slice(i, Math.min(locations.length, i + 10));
+          if (slice.length >= 2) chunks.push(slice);
+        }
+        const chunkResults = await Promise.all(
+          chunks.map(async (slice) => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 7000);
+            const res = await fetch(`${VALHALLA_FALLBACK}/route`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...payload, locations: slice }),
+              signal: controller.signal
+            });
+            clearTimeout(timeout);
+            if (!res.ok) return null;
+            return await res.json();
+          })
+        );
+        if (chunkResults.every(r => r && r.trip && r.trip.legs)) {
+          const combinedLegs = [];
+          let totalLength = 0;
+          let totalTime = 0;
+          for (const cr of chunkResults) {
+            totalLength += (cr.trip.summary?.length || 0);
+            totalTime += (cr.trip.summary?.time || 0);
+            combinedLegs.push(...cr.trip.legs);
+          }
+          return {
+            trip: {
+              legs: combinedLegs,
+              summary: { length: totalLength, time: totalTime }
+            }
+          };
+        }
+      } else {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 7000);
+        const res = await fetch(`${VALHALLA_FALLBACK}/route`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          return await res.json();
+        }
       }
     } catch (err) {
       // Fallback failed

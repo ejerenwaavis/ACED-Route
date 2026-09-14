@@ -83,6 +83,114 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+const VALHALLA_MAX_CHUNK_LOCATIONS = 10;
+
+/**
+ * Solves multi-waypoint stop sequence via direct Valhalla API.
+ * Respects public OSM Valhalla demo server limit (max 10 locations per request)
+ * by chunking with 1 overlapping waypoint and executing in parallel.
+ */
+export async function fetchValhallaDirectRoute(coords) {
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+
+  if (coords.length <= VALHALLA_MAX_CHUNK_LOCATIONS) {
+    const locations = coords.map(pt => ({ lon: Number(pt[0]), lat: Number(pt[1]), type: 'break' }));
+    const res = await fetch(VALHALLA_DIRECT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        locations,
+        costing: 'auto',
+        directions_options: { units: 'kilometers', language: 'en-US' }
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.trip?.legs) return null;
+    const allCoords = [];
+    for (let i = 0; i < data.trip.legs.length; i++) {
+      const leg = data.trip.legs[i];
+      const legCoords = decodePolyline6(leg.shape);
+      for (let j = 0; j < legCoords.length; j++) {
+        if (i > 0 && j === 0) continue;
+        allCoords.push(legCoords[j]);
+      }
+    }
+    return {
+      coordinates: allCoords,
+      distanceMeters: Math.round((data.trip.summary?.length || 0) * 1000),
+      durationSeconds: Math.round(data.trip.summary?.time || 0)
+    };
+  }
+
+  // Chunking for > 10 locations
+  const chunks = [];
+  for (let i = 0; i < coords.length - 1; i += (VALHALLA_MAX_CHUNK_LOCATIONS - 1)) {
+    const slice = coords.slice(i, Math.min(coords.length, i + VALHALLA_MAX_CHUNK_LOCATIONS));
+    if (slice.length >= 2) chunks.push({ chunkIdx: chunks.length, slice });
+  }
+
+  const chunkResults = await Promise.all(
+    chunks.map(async ({ chunkIdx, slice }) => {
+      try {
+        const locations = slice.map(pt => ({ lon: Number(pt[0]), lat: Number(pt[1]), type: 'break' }));
+        const res = await fetch(VALHALLA_DIRECT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            locations,
+            costing: 'auto',
+            directions_options: { units: 'kilometers', language: 'en-US' }
+          })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data?.trip?.legs) return null;
+        const chunkCoords = [];
+        for (let i = 0; i < data.trip.legs.length; i++) {
+          const leg = data.trip.legs[i];
+          const legCoords = decodePolyline6(leg.shape);
+          for (let j = 0; j < legCoords.length; j++) {
+            if (i > 0 && j === 0) continue;
+            chunkCoords.push(legCoords[j]);
+          }
+        }
+        return {
+          chunkIdx,
+          coordinates: chunkCoords,
+          distanceMeters: Math.round((data.trip.summary?.length || 0) * 1000),
+          durationSeconds: Math.round(data.trip.summary?.time || 0)
+        };
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  if (chunkResults.some(r => !r || !r.coordinates.length)) return null;
+
+  chunkResults.sort((a, b) => a.chunkIdx - b.chunkIdx);
+  const combinedCoords = [];
+  let totalDist = 0;
+  let totalTime = 0;
+
+  for (let c = 0; c < chunkResults.length; c++) {
+    const chunk = chunkResults[c];
+    totalDist += chunk.distanceMeters;
+    totalTime += chunk.durationSeconds;
+    for (let j = 0; j < chunk.coordinates.length; j++) {
+      if (c > 0 && j === 0) continue;
+      combinedCoords.push(chunk.coordinates[j]);
+    }
+  }
+
+  return {
+    coordinates: combinedCoords,
+    distanceMeters: totalDist,
+    durationSeconds: totalTime
+  };
+}
+
 /**
  * High-level offline routing, TTS voice guidance, and regional basemap management service.
  */
@@ -358,54 +466,27 @@ export const routingService = {
         details: { error: err.message, status, stopCount: validCoords.length }
       });
 
-      // 1b. Direct Valhalla fallback (while production server is pending restart or offline bridge)
+      // 1b. Direct Valhalla fallback (with parallel chunking for > 10 locations)
       try {
-        const locations = validCoords.map(pt => ({
-          lon: Number(pt[0]),
-          lat: Number(pt[1]),
-          type: 'break'
-        }));
-        const valhallaRes = await fetch(VALHALLA_DIRECT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            locations,
-            costing: 'auto',
-            directions_options: { units: 'kilometers', language: 'en-US' }
-          })
-        });
-        if (valhallaRes.ok) {
-          const vData = await valhallaRes.json();
-          if (vData?.trip?.legs) {
-            const allCoords = [];
-            for (let i = 0; i < vData.trip.legs.length; i++) {
-              const leg = vData.trip.legs[i];
-              const legCoords = decodePolyline6(leg.shape);
-              for (let j = 0; j < legCoords.length; j++) {
-                if (i > 0 && j === 0) continue;
-                allCoords.push(legCoords[j]);
-              }
-            }
-            const distMeters = Math.round((vData.trip.summary?.length || 0) * 1000);
-            const durSeconds = Math.round(vData.trip.summary?.time || 0);
-            const payload = {
-              coordinates: allCoords,
-              distanceMeters: distMeters,
-              durationSeconds: durSeconds,
-              isRoadSnapped: true
-            };
-            await setCachedGeometry(cacheKey, payload);
-            diagnosticLogger.logRoutingEvent({
-              endpoint: '/sequence (Valhalla Direct)',
-              status: 200,
-              level: 'success',
-              summary: `✅ Valhalla Direct /sequence: 200 (${allCoords.length} coords, ${validCoords.length} stops) in ${Date.now() - startTime}ms`,
-              isRoadSnapped: true,
-              cacheHit: false,
-              durationMs: Date.now() - startTime
-            });
-            return payload;
-          }
+        const directResult = await fetchValhallaDirectRoute(validCoords);
+        if (directResult && directResult.coordinates && directResult.coordinates.length > 0) {
+          const payload = {
+            coordinates: directResult.coordinates,
+            distanceMeters: directResult.distanceMeters,
+            durationSeconds: directResult.durationSeconds,
+            isRoadSnapped: true
+          };
+          await setCachedGeometry(cacheKey, payload);
+          diagnosticLogger.logRoutingEvent({
+            endpoint: '/sequence (Valhalla Direct)',
+            status: 200,
+            level: 'success',
+            summary: `✅ Valhalla Direct /sequence: 200 (${directResult.coordinates.length} coords, ${validCoords.length} stops) in ${Date.now() - startTime}ms`,
+            isRoadSnapped: true,
+            cacheHit: false,
+            durationMs: Date.now() - startTime
+          });
+          return payload;
         }
       } catch (_) {}
     }

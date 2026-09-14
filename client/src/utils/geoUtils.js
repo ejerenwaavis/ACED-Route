@@ -3,7 +3,7 @@
  * Provides high-precision distance, bearing, and cross-track calculations for real-time guidance.
  */
 
-import { getCachedCoordinates } from './geocodeCache';
+import { getCachedCoordinates } from './geocodeCache.js';
 
 const EARTH_RADIUS_METERS = 6371000;
 

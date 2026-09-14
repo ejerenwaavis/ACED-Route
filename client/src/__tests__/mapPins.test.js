@@ -670,6 +670,15 @@ assert('Header imports SystemLogModal', headerCode.includes('import SystemLogMod
 assert('Header renders SystemLogModal', headerCode.includes('<SystemLogModal'));
 assert('Header settings modal includes Routing Diagnostic Logs section', headerCode.includes('Routing Diagnostic Logs'));
 
+// 8. Chunked Valhalla Routing Verification (Respects 10 location max limit)
+const routingCode = fs.readFileSync(path.join(__dirname, '../services/routing.js'), 'utf8');
+assert('routing.js exports fetchValhallaDirectRoute', routingCode.includes('export async function fetchValhallaDirectRoute'));
+assert('routing.js defines VALHALLA_MAX_CHUNK_LOCATIONS = 10', routingCode.includes('const VALHALLA_MAX_CHUNK_LOCATIONS = 10'));
+assert('routing.js calculateSequenceRoute calls fetchValhallaDirectRoute', routingCode.includes('await fetchValhallaDirectRoute(validCoords)'));
+
+const updatedServerRouteCode = fs.readFileSync(path.join(__dirname, '../../../server/routes/route.js'), 'utf8');
+assert('Server route.js implements chunking for > 10 locations in VALHALLA_FALLBACK', updatedServerRouteCode.includes('payload.locations.length > 10'));
+
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
 if(fail>0) process.exit(1);

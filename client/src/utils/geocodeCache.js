@@ -3,7 +3,7 @@
  * Prevents repeating Google Maps Geocoding API calls across app restarts and uploads.
  */
 
-import { SUWANEE_SAMPLE_POOL } from '../data/sampleManifestPool';
+import { SUWANEE_SAMPLE_POOL } from '../data/sampleManifestPool.js';
 
 const CACHE_STORAGE_KEY = 'aced_geocode_cache_v1';
 
