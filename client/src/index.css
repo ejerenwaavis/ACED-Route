@@ -1327,7 +1327,7 @@ body {
    ───────────────────────────────────────────────────────────────────────────── */
 .map-approximate-route-pill {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  top: calc(env(safe-area-inset-top, 0px) + 2.75rem);
   left: 50%;
   transform: translateX(-50%);
   z-index: 95;
@@ -1348,7 +1348,7 @@ body {
 }
 
 .map-approximate-route-pill.navigating {
-  top: calc(env(safe-area-inset-top, 0px) + 7.5rem);
+  top: calc(env(safe-area-inset-top, 0px) + 9.0rem);
   z-index: 115;
 }
 
@@ -1356,5 +1356,56 @@ body {
   0%, 100% { opacity: 0.95; }
   50% { opacity: 0.75; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Waiting for GPS Indicator Pill
+   ───────────────────────────────────────────────────────────────────────────── */
+.map-gps-waiting-pill {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 114;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(15, 23, 42, 0.92);
+  color: #38bdf8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.3rem 0.8rem;
+  border-radius: 9999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.map-gps-waiting-pill.navigating {
+  top: calc(env(safe-area-inset-top, 0px) + 6.75rem);
+}
+
+.gps-waiting-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #38bdf8;
+  animation: gps-pulse 1.4s infinite ease-in-out;
+}
+
+@keyframes gps-pulse {
+  0%, 100% {
+    transform: scale(0.85);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+  }
+}
+
 
 

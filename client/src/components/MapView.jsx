@@ -35,6 +35,7 @@ import { useLanguage } from '../utils/i18n';
 import { haversineDistance, getStopCoords } from '../utils/geoUtils';
 import { getCachedCoordinates } from '../utils/geocodeCache';
 import { diagnosticLogger } from '../services/diagnosticLogger';
+import SystemLogModal from './SystemLogModal';
 
 export { getStopCoords };
 
@@ -212,13 +213,12 @@ export function buildDotTrailGeoJSON(driverLoc, targetCoords, isRoadSnapped = tr
   if (!targetCoords || targetCoords.length < 2) {
     return { type: 'FeatureCollection', features: [] };
   }
-  let dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
-  let dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
 
-  // If driver location is null (before GPS fix, on desktop/emulator), fall back to offset from target
+  // STRICT: When driver location is null or invalid, render NO dot trail and NO synthetic starting point
   if (dlLng == null || dlLat == null || isNaN(dlLng) || isNaN(dlLat)) {
-    dlLng = targetCoords[0] - 0.015;
-    dlLat = targetCoords[1] - 0.015;
+    return { type: 'FeatureCollection', features: [] };
   }
 
   const tLng = targetCoords[0];
@@ -388,6 +388,7 @@ export default function MapView({
   const [offlineMode, setOfflineMode] = useState(false);
   // Debug HUD — shows live layer-setup status on device screen
   const [debugInfo, setDebugInfo] = useState('waiting…');
+  const [showLogsModal, setShowLogsModal] = useState(false);
 
   // Subscribe to diagnosticLogger for real-time HUD lastFetch updates
   useEffect(() => {
@@ -1207,6 +1208,14 @@ export default function MapView({
           </div>
         )}
 
+        {/* Waiting for GPS indicator pill when driver location is unavailable */}
+        {(!driverLocation || (Array.isArray(driverLocation) ? !driverLocation.length : driverLocation.latitude == null)) && (
+          <div className={`map-gps-waiting-pill ${isNavigating ? 'navigating' : ''}`}>
+            <span className="gps-waiting-dot" />
+            <span>Waiting for GPS…</span>
+          </div>
+        )}
+
         {/* Offline / Approximate Route Direction Pill */}
         {((!isActiveRoadSnapped && isNavigating) || (!isSequenceRoadSnapped && stops && stops.length > 1)) && (
           <div className={`map-approximate-route-pill ${isNavigating ? 'navigating' : ''}`}>
@@ -1214,8 +1223,13 @@ export default function MapView({
           </div>
         )}
 
-        {/* Always-visible live diagnostic HUD */}
-        <div className={`map-debug-hud-pill ${isNavigating ? 'map-debug-hud-navigating' : ''}`}>
+        {/* Always-visible live diagnostic HUD (tap to view System Diagnostic Logs) */}
+        <div
+          className={`map-debug-hud-pill ${isNavigating ? 'map-debug-hud-navigating' : ''}`}
+          onClick={() => setShowLogsModal(true)}
+          style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+          title="Click to view Diagnostic Logs"
+        >
           <span>{debugInfo}</span>
         </div>
 
@@ -1340,6 +1354,11 @@ export default function MapView({
 
           return null;
         })()}
+
+        <SystemLogModal
+          isOpen={showLogsModal}
+          onClose={() => setShowLogsModal(false)}
+        />
       </div>
     </div>
   );

@@ -1,8 +1,11 @@
 import { AcedRouting } from 'aced-routing';
 import { Network } from '@capacitor/network';
 import { getLanguage } from '../utils/i18n';
+import { decodePolyline6 } from '../utils/geoUtils';
 import { api } from './api';
 import { diagnosticLogger } from './diagnosticLogger';
+
+const VALHALLA_DIRECT_URL = 'https://valhalla1.openstreetmap.de/route';
 
 const ACTIVE_REGION_KEY = 'aced_active_region';
 const DB_NAME = 'aced_routing_db';
@@ -198,12 +201,62 @@ export const routingService = {
         endpoint: '/api/route/active',
         status,
         level: 'warn',
-        summary: `❌ /api/route/active failed: HTTP ${status} (${err.message || 'unknown'}) → checking cache`,
+        summary: `❌ /api/route/active failed: HTTP ${status} (${err.message || 'unknown'}) → attempting Valhalla direct`,
         isRoadSnapped: false,
         cacheHit: false,
         durationMs,
         details: { error: err.message, status, start: startLL, end: endLL }
       });
+
+      // 1b. Direct Valhalla fallback (while production server is pending restart or offline bridge)
+      try {
+        const valhallaRes = await fetch(VALHALLA_DIRECT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            locations: [
+              { lon: Number(startLL[0]), lat: Number(startLL[1]), type: 'break' },
+              { lon: Number(endLL[0]), lat: Number(endLL[1]), type: 'break' }
+            ],
+            costing: 'auto',
+            directions_options: { units: 'kilometers', language: 'en-US' }
+          })
+        });
+        if (valhallaRes.ok) {
+          const vData = await valhallaRes.json();
+          if (vData?.trip?.legs?.[0]) {
+            const leg = vData.trip.legs[0];
+            const coordinates = decodePolyline6(leg.shape);
+            const distMeters = Math.round((vData.trip.summary?.length || 0) * 1000);
+            const durSeconds = Math.round(vData.trip.summary?.time || 0);
+            const instructions = (leg.maneuvers || []).map((m) => ({
+              instruction: m.instruction || 'Continue',
+              streetNames: m.street_names || [],
+              distanceMeters: Math.round((m.length || 0) * 1000),
+              timeSeconds: Math.round(m.time || 0),
+              type: m.type || 1
+            }));
+            const payload = {
+              coordinates,
+              distanceMeters: distMeters,
+              durationSeconds: durSeconds,
+              instructions,
+              isRoadSnapped: true
+            };
+            await setCachedGeometry(cacheKey, payload);
+            diagnosticLogger.logRoutingEvent({
+              endpoint: '/active (Valhalla Direct)',
+              status: 200,
+              level: 'success',
+              summary: `✅ Valhalla Direct /active: 200 (${coordinates.length} coords, ${distMeters}m) in ${Date.now() - startTime}ms`,
+              isRoadSnapped: true,
+              cacheHit: false,
+              durationMs: Date.now() - startTime
+            });
+            return payload;
+          }
+        }
+      } catch (_) {}
     }
 
     // 2. Broad failure handling: Check IndexedDB cache
@@ -304,6 +357,57 @@ export const routingService = {
         durationMs,
         details: { error: err.message, status, stopCount: validCoords.length }
       });
+
+      // 1b. Direct Valhalla fallback (while production server is pending restart or offline bridge)
+      try {
+        const locations = validCoords.map(pt => ({
+          lon: Number(pt[0]),
+          lat: Number(pt[1]),
+          type: 'break'
+        }));
+        const valhallaRes = await fetch(VALHALLA_DIRECT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            locations,
+            costing: 'auto',
+            directions_options: { units: 'kilometers', language: 'en-US' }
+          })
+        });
+        if (valhallaRes.ok) {
+          const vData = await valhallaRes.json();
+          if (vData?.trip?.legs) {
+            const allCoords = [];
+            for (let i = 0; i < vData.trip.legs.length; i++) {
+              const leg = vData.trip.legs[i];
+              const legCoords = decodePolyline6(leg.shape);
+              for (let j = 0; j < legCoords.length; j++) {
+                if (i > 0 && j === 0) continue;
+                allCoords.push(legCoords[j]);
+              }
+            }
+            const distMeters = Math.round((vData.trip.summary?.length || 0) * 1000);
+            const durSeconds = Math.round(vData.trip.summary?.time || 0);
+            const payload = {
+              coordinates: allCoords,
+              distanceMeters: distMeters,
+              durationSeconds: durSeconds,
+              isRoadSnapped: true
+            };
+            await setCachedGeometry(cacheKey, payload);
+            diagnosticLogger.logRoutingEvent({
+              endpoint: '/sequence (Valhalla Direct)',
+              status: 200,
+              level: 'success',
+              summary: `✅ Valhalla Direct /sequence: 200 (${allCoords.length} coords, ${validCoords.length} stops) in ${Date.now() - startTime}ms`,
+              isRoadSnapped: true,
+              cacheHit: false,
+              durationMs: Date.now() - startTime
+            });
+            return payload;
+          }
+        }
+      } catch (_) {}
     }
 
     // 2. Check IndexedDB cache

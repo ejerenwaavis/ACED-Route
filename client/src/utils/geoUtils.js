@@ -66,6 +66,40 @@ export function getStopCoords(stop) {
 }
 
 /**
+ * Fast bitwise polyline6 decoder for Valhalla's 1e-6 delta-encoded geometry strings.
+ * Returns array of [longitude, latitude] GeoJSON number pairs.
+ */
+export function decodePolyline6(str) {
+  if (!str) return [];
+  let index = 0, lat = 0, lng = 0;
+  const coordinates = [];
+  const factor = 1e6;
+  while (index < str.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+
+    coordinates.push([Number((lng / factor).toFixed(6)), Number((lat / factor).toFixed(6))]);
+  }
+  return coordinates;
+}
+
+/**
  * Calculates great-circle distance between two coordinates in meters.
  */
 export function haversineDistance(lat1, lon1, lat2, lon2) {

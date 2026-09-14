@@ -197,7 +197,12 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     }
 
     if (!originCoords) {
-      originCoords = [targetCoords[0] - 0.015, targetCoords[1] - 0.015];
+      // User requirement: When driverLocation is null, render NO active-route line or dot trail
+      // and NO misleading synthetic starting point.
+      setActiveRouteCoords(null);
+      setCurrentRouteResult(null);
+      setIsActiveRoadSnapped(true);
+      return;
     }
 
     try {

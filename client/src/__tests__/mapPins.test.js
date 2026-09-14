@@ -522,12 +522,10 @@ function testBuildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, dr
 
 function testBuildDotTrail(driverLoc, targetCoords, isRoadSnapped) {
   if (isRoadSnapped) return { type: 'FeatureCollection', features: [] };
-  if (!targetCoords || targetCoords.length < 2) return { type: 'FeatureCollection', features: [] };
-  let dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
-  let dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
   if (dlLng == null || dlLat == null || isNaN(dlLng) || isNaN(dlLat)) {
-    dlLng = targetCoords[0] - 0.015;
-    dlLat = targetCoords[1] - 0.015;
+    return { type: 'FeatureCollection', features: [] };
   }
   const tLng = targetCoords[0];
   const tLat = targetCoords[1];
@@ -629,10 +627,14 @@ assert('diagnosticLogger exports exportLogsAsText', loggerCode.includes('exportL
 assert('diagnosticLogger exports downloadLogsFile', loggerCode.includes('downloadLogsFile'));
 assert('diagnosticLogger exports getLastFetchOutcome', loggerCode.includes('getLastFetchOutcome'));
 
-// 2. Active Dot Trail with Null Driver Location Fallback
+// 2. Active Dot Trail with Null Driver Location Behavior (Strict User Requirement)
+// When driverLocation is null, render NO active-route dot trail at all (and NO misleading synthetic starting point)
+// and show distinct "Waiting for GPS…" indicator pill instead until real GPS is available.
 const nullDriverDots = testBuildDotTrail(null, [-84.071, 34.052], false);
-assert('testBuildDotTrail generates 16 dots even when driverLocation is null', nullDriverDots.features.length === 16);
-assert('MapView buildDotTrailGeoJSON supports null driverLocation fallback', mapViewCode.includes('targetCoords[0] - 0.015'));
+assert('testBuildDotTrail generates 0 dots when driverLocation is null (no misleading fake starting point)', nullDriverDots.features.length === 0);
+assert('MapView buildDotTrailGeoJSON returns empty features when driverLocation is null', !mapViewCode.includes('targetCoords[0] - 0.015'));
+assert('MapView renders map-gps-waiting-pill when driver location is null', mapViewCode.includes('map-gps-waiting-pill') && mapViewCode.includes('Waiting for GPS…'));
+assert('CSS defines map-gps-waiting-pill and gps-waiting-dot pulse animation', cssContent.includes('.map-gps-waiting-pill') && cssContent.includes('.gps-waiting-dot'));
 
 // 3. Dense Sequence Dot Trail Generation
 assert('MapView buildSequenceDotTrailGeoJSON uses dense 15 points per segment', mapViewCode.includes('const count = 15;'));
@@ -644,19 +646,21 @@ const sampleStopsForDots = [
 const seqDotsFC = testBuildSequenceDotTrail(sampleStopsForDots, false);
 assert('Sequence dot trail generates circle points across stops', seqDotsFC.features.length > 0);
 
-// 4. Debug HUD Format Verification
+// 4. Debug HUD Format & SystemLogModal Clickable Access
 assert('MapView HUD string includes both lines, dots, and lastFetch', mapViewCode.includes('lines:{seq:${seqCoordsCount}, act:${actCoordsCount}} dots:{seq:${seqDotsCount}, act:${actDotsCount}} lastFetch:${diagnosticLogger.getLastFetchOutcome()}'));
-assert('MapView has removed duplicate HUD overwrite from markers effect', !mapViewCode.includes('lines:{seq:${seqCoordsCount}, act:${actCoordsCount}}`)\n  }, [stops, activeIndex'));
+assert('MapView debug HUD pill is clickable to open SystemLogModal', mapViewCode.includes('onClick={() => setShowLogsModal(true)}'));
+assert('MapView renders SystemLogModal component', mapViewCode.includes('<SystemLogModal'));
 
-// 5. CSS Navigating Badge Offset Verification (Cleanly below turn card)
-assert('CSS .map-approximate-route-pill.navigating has safe-area + 7.5rem offset', /\.map-approximate-route-pill\.navigating[^{]*\{[^}]*7\.5rem/.test(cssContent));
+// 5. CSS Navigating Badge Offset Verification (Moved cleanly down to 9.0rem below turn card)
+assert('CSS .map-approximate-route-pill.navigating has safe-area + 9.0rem offset', /\.map-approximate-route-pill\.navigating[^{]*\{[^}]*9\.0rem/.test(cssContent));
 assert('CSS .map-approximate-route-pill.navigating has z-index 115', /\.map-approximate-route-pill\.navigating[^{]*\{[^}]*z-index:\s*115/.test(cssContent));
 
-// 6. NavigationPage Coordinate Extraction Bug Fix
+// 6. NavigationPage Coordinate Extraction & Null-Driver Guard
 const navPageCode = fs.readFileSync(path.join(__dirname, '../pages/NavigationPage.jsx'), 'utf8');
 assert('NavigationPage imports getStopCoords from geoUtils', navPageCode.includes('import { haversineDistance, getStopCoords } from \'../utils/geoUtils\''));
 assert('NavigationPage fetchSequenceRoute maps stops via getStopCoords', navPageCode.includes('stops.map(getStopCoords).filter(Boolean)'));
 assert('NavigationPage computeLeg extracts targetCoords via getStopCoords', navPageCode.includes('getStopCoords(activeStop) || getStopCoords(activeAddr)'));
+assert('NavigationPage does NOT synthesize origin coords when driverLocation is null', !navPageCode.includes('originCoords = [targetCoords[0] - 0.015'));
 
 // 7. SystemLogModal Component Verification
 const logModalPath = path.join(__dirname, '../components/SystemLogModal.jsx');
