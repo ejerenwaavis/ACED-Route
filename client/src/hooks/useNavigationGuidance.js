@@ -57,7 +57,18 @@ export function useNavigationGuidance({
     return dists;
   }, [route]);
 
-  // Reset step progression when a new route is received
+  // Compute a stable fingerprint for the route so we only reset spoken state
+  // when the route *actually changes* (different path or step count), not when
+  // a new object reference arrives with identical content.
+  const routeFingerprint = useMemo(() => {
+    if (!route || !route.coordinates || route.coordinates.length === 0) return null;
+    const first = route.coordinates[0];
+    const last = route.coordinates[route.coordinates.length - 1];
+    const steps = route.instructions?.length ?? 0;
+    return `${first?.[0]?.toFixed(5)},${first?.[1]?.toFixed(5)}_${last?.[0]?.toFixed(5)},${last?.[1]?.toFixed(5)}_${steps}`;
+  }, [route]);
+
+  // Reset step progression only when the route fingerprint changes (new actual path)
   useEffect(() => {
     setCurrentStepIndex(0);
     setDistanceToManeuver(0);
@@ -65,7 +76,7 @@ export function useNavigationGuidance({
     spokenFlags.current = {};
     offRouteTicks.current = 0;
     lastSpokenText.current = '';
-  }, [route]);
+  }, [routeFingerprint]);
 
   // Silence TTS immediately when navigation is disabled / exited
   useEffect(() => {

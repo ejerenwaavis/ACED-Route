@@ -338,10 +338,13 @@ export default function MapView({
 
   const isSettingUpRef = useRef(false);
 
-  // Add all WebGL vector sources and layers with immediate data
+  // Add all WebGL vector sources and layers with immediate data.
+  // NOTE: We do NOT guard on map.isStyleLoaded() here — with raster-only ESRI
+  // basemaps, MapLibre GL fires the 'load' event before isStyleLoaded() returns
+  // true, which would silently block all layer setup forever. Instead we attempt
+  // setup directly and rely on safeAddSource/safeAddLayer to handle any errors.
   const setupLayers = useCallback((map) => {
     if (!map || isSettingUpRef.current) return;
-    if (!map.isStyleLoaded()) return;
 
     isSettingUpRef.current = true;
     try {
@@ -581,22 +584,21 @@ export default function MapView({
       attributionControl: false
     });
 
-    const onReady = () => {
-      if (map.isStyleLoaded()) {
-        setupLayers(map);
-      }
-    };
+    // Assign ref immediately so update effects can push data during setup
+    mapRef.current = map;
 
-    map.on('load', onReady);
+    // Primary: attempt layer setup on map load event
+    map.on('load', () => {
+      setupLayers(map);
+    });
+
+    // Fallback: retry via styledata if sources were not added yet
+    // (fires multiple times during style transitions; the mutex prevents double-setup)
     map.on('styledata', () => {
-      if (map.isStyleLoaded() && !map.getSource('stops-source')) {
+      if (!map.getSource('stops-source')) {
         setupLayers(map);
       }
     });
-
-    if (map.isStyleLoaded()) {
-      setupLayers(map);
-    }
 
     return () => {
       map.remove();
@@ -604,6 +606,7 @@ export default function MapView({
       setMapLoaded(false);
     };
   }, [activeRegion, nativePmtilesPath, offlineMode, setupLayers, mapTheme]);
+
 
   // Handle Fullscreen resize
   useEffect(() => {
@@ -732,9 +735,13 @@ export default function MapView({
     if (map) {
       const pmtilesUrl = resolvePmtilesUrl(activeRegion, nativePmtilesPath);
       const newStyle = buildMapStyle({ pmtilesUrl, isOffline: offlineMode, theme: nextTheme });
+      // Reset guards so setupLayers re-runs after the style swap
+      isSettingUpRef.current = false;
+      map._hasStopClickListeners = false;
       map.setStyle(newStyle);
     }
   };
+
 
   return (
     <div

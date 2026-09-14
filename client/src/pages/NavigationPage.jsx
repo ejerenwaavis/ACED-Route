@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Navigation,
   CheckCircle2,
@@ -72,7 +72,17 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // Calculate Offline Valhalla Route Leg to Active Stop
+  // Stable ref so computeLeg can read current GPS without being in its deps array
+  const driverLocationRef = useRef(driverLocation);
+  useEffect(() => {
+    driverLocationRef.current = driverLocation;
+  }, [driverLocation]);
+
+  // Calculate Offline Valhalla Route Leg to Active Stop.
+  // IMPORTANT: driverLocation is intentionally NOT in the dependency array.
+  // Route only recalculates when the active stop changes. Reading driverLocation
+  // via ref avoids re-triggering this effect on every GPS tick, which was the
+  // root cause of spokenFlags being reset and the voice guidance looping.
   useEffect(() => {
     let isCancelled = false;
 
@@ -84,12 +94,13 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       // Valhalla expects [lat, lng]
       const targetLatLng = [targetCoords[1], targetCoords[0]];
 
+      const curDriverLoc = driverLocationRef.current;
       let originLatLng = null;
-      if (driverLocation) {
-        if (Array.isArray(driverLocation) && driverLocation.length >= 2) {
-          originLatLng = [driverLocation[1], driverLocation[0]];
-        } else if (driverLocation.latitude != null && driverLocation.longitude != null) {
-          originLatLng = [driverLocation.latitude, driverLocation.longitude];
+      if (curDriverLoc) {
+        if (Array.isArray(curDriverLoc) && curDriverLoc.length >= 2) {
+          originLatLng = [curDriverLoc[1], curDriverLoc[0]];
+        } else if (curDriverLoc.latitude != null && curDriverLoc.longitude != null) {
+          originLatLng = [curDriverLoc.latitude, curDriverLoc.longitude];
         }
       } else if (currentIndex > 0) {
         const prev = stops[currentIndex - 1];
@@ -122,7 +133,8 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     return () => {
       isCancelled = true;
     };
-  }, [currentIndex, activeStop, driverLocation]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, activeStop]);
 
   // Off-route rerouting handler
   const handleRerouteNeeded = async (newStartCoords) => {
