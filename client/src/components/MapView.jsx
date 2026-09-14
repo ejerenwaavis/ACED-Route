@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Map as MapLibreMap, Marker, NavigationControl, LngLatBounds } from 'maplibre-gl';
+import { Map as MapLibreMap, LngLatBounds } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { App } from '@capacitor/app';
 import {
   Navigation,
   Crosshair,
@@ -9,15 +10,82 @@ import {
   X,
   Key,
   Tag,
-  CheckCircle2,
   Compass,
   ArrowRight,
   ShieldCheck,
-  Layers
+  Plus,
+  Minus,
+  Sun,
+  Moon,
+  ChevronLeft
 } from 'lucide-react';
 import { registerPMTilesProtocol, resolvePmtilesUrl } from '../utils/pmtilesProtocol';
 import { buildMapStyle } from '../utils/mapStyle';
 import { routingService } from '../services/routing';
+
+/**
+ * Generate a high-DPI Retina stop pin icon into an in-memory canvas.
+ * Registered into MapLibre's WebGL sprite registry so all stop markers
+ * are drawn directly on the GPU in 120fps lockstep with map pans.
+ */
+function createStopPinImageData(stopNumber, status, isActive, isSelected) {
+  const logicalSize = isSelected ? 40 : isActive ? 36 : 30;
+  const pixelRatio = 2;
+  const size = logicalSize * pixelRatio;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(pixelRatio, pixelRatio);
+
+  const cx = logicalSize / 2;
+  const cy = logicalSize / 2;
+  const radius = logicalSize / 2 - 3;
+
+  // Background color based on delivery status
+  let bgColor = '#0284c7'; // pending blue
+  if (isActive) {
+    bgColor = '#16a34a'; // active target green
+  } else if (status === 'delivered') {
+    bgColor = '#334155'; // delivered slate
+  }
+
+  // Outer ring for active or selected stop
+  if (isSelected) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 1.5, 0, Math.PI * 2);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  } else if (isActive) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 1.5, 0, Math.PI * 2);
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  // Main pin circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = bgColor;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Stop number text
+  ctx.fillStyle = '#ffffff';
+  const numStr = String(stopNumber);
+  const fontSize = numStr.length > 2 ? 10 : numStr.length > 1 ? 12 : 13;
+  ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(numStr, cx, cy + 0.5);
+
+  return ctx.getImageData(0, 0, size, size);
+}
 
 export default function MapView({
   stops = [],
@@ -31,13 +99,16 @@ export default function MapView({
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  const markersRef = useRef([]);
-  const driverMarkerRef = useRef(null);
+  const stopsRef = useRef(stops);
+  stopsRef.current = stops;
+  const onSelectStopRef = useRef(onSelectStop);
+  onSelectStopRef.current = onSelectStop;
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedStop, setSelectedStop] = useState(null);
   const [selectedStopIndex, setSelectedStopIndex] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapTheme, setMapTheme] = useState('street');
   const [nativePmtilesPath, setNativePmtilesPath] = useState(null);
   const [offlineMode, setOfflineMode] = useState(false);
 
@@ -70,14 +141,36 @@ export default function MapView({
     };
   }, [activeRegion]);
 
-  // 2. Initialize MapLibre GL instance
+  // 2. Hardware Android Back Button Listener in Fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return;
+    let listenerHandle = null;
+
+    try {
+      App.addListener('backButton', () => {
+        setIsFullscreen(false);
+      }).then((handle) => {
+        listenerHandle = handle;
+      }).catch(() => {});
+    } catch {
+      // Browser environment fallback
+    }
+
+    return () => {
+      if (listenerHandle) {
+        listenerHandle.remove();
+      }
+    };
+  }, [isFullscreen]);
+
+  // 3. Initialize MapLibre GL instance
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
     registerPMTilesProtocol();
 
     const pmtilesUrl = resolvePmtilesUrl(activeRegion, nativePmtilesPath);
-    const styleObj = buildMapStyle({ pmtilesUrl, isOffline: offlineMode });
+    const styleObj = buildMapStyle({ pmtilesUrl, isOffline: offlineMode, theme: mapTheme });
 
     // Center map around first valid stop or Atlanta metro
     let initialCenter = [-84.388, 33.749];
@@ -94,10 +187,8 @@ export default function MapView({
       attributionControl: false
     });
 
-    map.addControl(new NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
-
     const setupLayers = () => {
-      // Sequence Route Source & Layers (Dashed Muted Electric Blue)
+      // A. Sequence Route Source & Layers (Dashed Muted Electric Blue)
       if (!map.getSource('sequence-route-source')) {
         map.addSource('sequence-route-source', {
           type: 'geojson',
@@ -138,7 +229,7 @@ export default function MapView({
         });
       }
 
-      // Active Target Route Leg (Solid Neon Green with glowing casing)
+      // B. Active Target Route Leg (Solid Neon Green with glowing casing)
       if (!map.getSource('active-route-source')) {
         map.addSource('active-route-source', {
           type: 'geojson',
@@ -178,6 +269,104 @@ export default function MapView({
         });
       }
 
+      // C. Driver GPS Location Source & WebGL Puck Layers
+      if (!map.getSource('driver-location-source')) {
+        map.addSource('driver-location-source', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: []
+          }
+        });
+
+        // Driver Pulse Halo
+        map.addLayer({
+          id: 'driver-puck-halo',
+          type: 'circle',
+          source: 'driver-location-source',
+          paint: {
+            'circle-radius': 16,
+            'circle-color': '#38bdf8',
+            'circle-opacity': 0.3,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#38bdf8'
+          }
+        });
+
+        // Driver Core Dot
+        map.addLayer({
+          id: 'driver-puck-core',
+          type: 'circle',
+          source: 'driver-location-source',
+          paint: {
+            'circle-radius': 7.5,
+            'circle-color': '#0284c7',
+            'circle-stroke-width': 2.5,
+            'circle-stroke-color': '#ffffff'
+          }
+        });
+      }
+
+      // D. Stop Markers WebGL Source & Layers
+      if (!map.getSource('stops-source')) {
+        map.addSource('stops-source', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: []
+          }
+        });
+
+        // Glowing radar pulse on GPU for active target stop
+        map.addLayer({
+          id: 'stops-active-halo',
+          type: 'circle',
+          source: 'stops-source',
+          filter: ['==', ['get', 'isActive'], true],
+          paint: {
+            'circle-radius': 22,
+            'circle-color': '#22c55e',
+            'circle-opacity': 0.35,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#4ade80'
+          }
+        });
+
+        // GPU Symbol Layer: numbered pins drawn directly in WebGL
+        map.addLayer({
+          id: 'stops-symbol-layer',
+          type: 'symbol',
+          source: 'stops-source',
+          layout: {
+            'icon-image': ['get', 'iconKey'],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          }
+        });
+
+        // Immediate click interaction on GPU stop symbols
+        map.on('click', 'stops-symbol-layer', (e) => {
+          if (!e.features || !e.features.length) return;
+          const props = e.features[0].properties;
+          const idx = Number(props.stopIndex);
+          const stop = stopsRef.current[idx];
+          if (stop) {
+            setSelectedStop(stop);
+            setSelectedStopIndex(idx);
+            const coords = e.features[0].geometry.coordinates;
+            map.flyTo({ center: coords, zoom: 15.5, essential: true });
+            if (onSelectStopRef.current) onSelectStopRef.current(idx);
+          }
+        });
+
+        map.on('mouseenter', 'stops-symbol-layer', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'stops-symbol-layer', () => {
+          map.getCanvas().style.cursor = '';
+        });
+      }
+
       mapRef.current = map;
       setMapLoaded(true);
     };
@@ -186,12 +375,6 @@ export default function MapView({
     map.on('style.load', setupLayers);
 
     return () => {
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
-      if (driverMarkerRef.current) {
-        driverMarkerRef.current.remove();
-        driverMarkerRef.current = null;
-      }
       map.remove();
       mapRef.current = null;
       setMapLoaded(false);
@@ -207,79 +390,89 @@ export default function MapView({
     }
   }, [isFullscreen]);
 
-  // 3. Update Stop HTML Markers
+  // 4. Update WebGL Stop Markers (Zero-Lag GPU Rendering)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
+    const stopsSource = map.getSource('stops-source');
+    if (!stopsSource) return;
 
+    const features = [];
     stops.forEach((stop, idx) => {
       const coords = getStopCoords(stop);
       if (!coords) return;
 
+      const stopNumber = idx + 1;
       const isCurrentActive = idx === activeIndex;
       const isDelivered = stop.status === 'delivered';
       const isSelected = idx === selectedStopIndex;
+      const iconKey = `pin-${stopNumber}-${isDelivered ? 'd' : 'p'}-${isCurrentActive ? '1' : '0'}-${isSelected ? '1' : '0'}`;
 
-      const el = document.createElement('div');
-      el.className = `stop-marker-pin ${isCurrentActive ? 'stop-marker-active' : ''} ${
-        isDelivered ? 'stop-marker-delivered' : ''
-      } ${isSelected ? 'stop-marker-selected' : ''}`;
-      el.innerText = `${idx + 1}`;
+      // Register canvas image in MapLibre's sprite registry if not already present
+      if (!map.hasImage(iconKey)) {
+        const imgData = createStopPinImageData(stopNumber, stop.status, isCurrentActive, isSelected);
+        map.addImage(iconKey, imgData, { pixelRatio: 2 });
+      }
 
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setSelectedStop(stop);
-        setSelectedStopIndex(idx);
-        map.flyTo({ center: coords, zoom: 15.5, essential: true });
-        if (onSelectStop) onSelectStop(idx);
+      features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: coords
+        },
+        properties: {
+          stopIndex: idx,
+          stopNumber: `${stopNumber}`,
+          status: stop.status || 'pending',
+          isActive: isCurrentActive,
+          isSelected: isSelected,
+          iconKey: iconKey
+        }
       });
+    });
 
-      const marker = new Marker({ element: el })
-        .setLngLat(coords)
-        .addTo(map);
-
-      markersRef.current.push(marker);
+    stopsSource.setData({
+      type: 'FeatureCollection',
+      features: features
     });
   }, [stops, activeIndex, selectedStopIndex, mapLoaded]);
 
-  // 4. Update Driver GPS Puck Marker
+  // 5. Update WebGL Driver GPS Puck
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
+    const driverSource = map.getSource('driver-location-source');
+    if (!driverSource) return;
+
     if (driverLocation && driverLocation.length >= 2) {
-      const lngLat = [driverLocation[0], driverLocation[1]];
-
-      if (!driverMarkerRef.current) {
-        const el = document.createElement('div');
-        el.style.width = '22px';
-        el.style.height = '22px';
-        el.style.borderRadius = '50%';
-        el.style.background = '#38bdf8';
-        el.style.border = '3px solid #ffffff';
-        el.style.boxShadow = '0 0 12px rgba(56, 189, 248, 0.9)';
-
-        driverMarkerRef.current = new Marker({ element: el })
-          .setLngLat(lngLat)
-          .addTo(map);
-      } else {
-        driverMarkerRef.current.setLngLat(lngLat);
-      }
-    } else if (driverMarkerRef.current) {
-      driverMarkerRef.current.remove();
-      driverMarkerRef.current = null;
+      driverSource.setData({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [driverLocation[0], driverLocation[1]]
+            }
+          }
+        ]
+      });
+    } else {
+      driverSource.setData({
+        type: 'FeatureCollection',
+        features: []
+      });
     }
   }, [driverLocation, mapLoaded]);
 
-  // 5. Update Polylines: Sequence Route (Blue) & Active Route (Green)
+  // 6. Update Polylines: Sequence Route (Blue) & Active Route (Green)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
-    // A. Update Sequence Line (connects all ordered stops)
+    // A. Sequence Line
     const validCoords = stops.map(getStopCoords).filter(Boolean);
     const seqSource = map.getSource('sequence-route-source');
     if (seqSource && validCoords.length > 1) {
@@ -292,7 +485,7 @@ export default function MapView({
       });
     }
 
-    // B. Update Active Route Line (Neon Green)
+    // B. Active Route Leg (Neon Green)
     const activeSource = map.getSource('active-route-source');
     if (activeSource) {
       let activeLineCoords = [];
@@ -331,7 +524,7 @@ export default function MapView({
     }
   }, [stops, activeIndex, activeRouteCoordinates, driverLocation, mapLoaded]);
 
-  // 6. Camera Auto-framing
+  // 7. Camera Auto-framing
   const fitMapToBounds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -344,7 +537,7 @@ export default function MapView({
     if (driverLocation) bounds.extend(driverLocation);
 
     map.fitBounds(bounds, {
-      padding: { top: 50, bottom: 80, left: 50, right: 50 },
+      padding: { top: 70, bottom: 90, left: 50, right: 50 },
       maxZoom: 16,
       duration: 800
     });
@@ -365,6 +558,25 @@ export default function MapView({
       map.flyTo({ center: coords, zoom: 15.5, essential: true });
       setSelectedStop(target);
       setSelectedStopIndex(activeIndex);
+    }
+  };
+
+  const handleZoomIn = () => {
+    if (mapRef.current) mapRef.current.zoomIn();
+  };
+
+  const handleZoomOut = () => {
+    if (mapRef.current) mapRef.current.zoomOut();
+  };
+
+  const handleToggleTheme = () => {
+    const nextTheme = mapTheme === 'street' ? 'dark' : 'street';
+    setMapTheme(nextTheme);
+    const map = mapRef.current;
+    if (map) {
+      const pmtilesUrl = resolvePmtilesUrl(activeRegion, nativePmtilesPath);
+      const newStyle = buildMapStyle({ pmtilesUrl, isOffline: offlineMode, theme: nextTheme });
+      map.setStyle(newStyle);
     }
   };
 
@@ -405,20 +617,47 @@ export default function MapView({
       <div className={`maplibre-wrapper ${isFullscreen ? 'maplibre-fullscreen' : ''}`}>
         <div ref={mapContainerRef} className="maplibre-canvas-container" />
 
-        {/* Legend pill */}
-        <div className="map-legend-pill">
-          <ShieldCheck size={13} />
-          <span>HD Dark Basemap</span>
-        </div>
+        {/* Fullscreen Back Bar (Safe Area Top) */}
+        {isFullscreen && (
+          <div className="map-fullscreen-header-bar">
+            <button
+              onClick={() => setIsFullscreen(false)}
+              className="map-back-btn"
+              title="Exit Full View"
+            >
+              <ChevronLeft size={18} />
+              <span>Back</span>
+            </button>
+            <div className="map-legend-pill">
+              <ShieldCheck size={13} />
+              <span>{mapTheme === 'street' ? 'Vector Street' : 'Night Mode'}</span>
+            </div>
+          </div>
+        )}
 
-        {/* Custom Map Controls */}
+        {/* Legend pill for normal embedded view */}
+        {!isFullscreen && (
+          <div className="map-legend-pill">
+            <ShieldCheck size={13} />
+            <span>{mapTheme === 'street' ? 'Vector Street' : 'Night Mode'}</span>
+          </div>
+        )}
+
+        {/* Unified Custom Map Controls (Notch Safe) */}
         <div className="maplibre-controls-overlay">
           <button
             className="map-control-btn"
             onClick={() => setIsFullscreen(!isFullscreen)}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Full Screen View'}
+            title={isFullscreen ? 'Exit Full View' : 'Full Screen View'}
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button
+            className="map-control-btn"
+            onClick={handleToggleTheme}
+            title={mapTheme === 'street' ? 'Switch to Night Mode' : 'Switch to Street View'}
+          >
+            {mapTheme === 'street' ? <Moon size={16} /> : <Sun size={16} />}
           </button>
           <button
             className="map-control-btn"
@@ -433,6 +672,20 @@ export default function MapView({
             title="Recenter to Active Stop"
           >
             <Crosshair size={16} />
+          </button>
+          <button
+            className="map-control-btn"
+            onClick={handleZoomIn}
+            title="Zoom In"
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            className="map-control-btn"
+            onClick={handleZoomOut}
+            title="Zoom Out"
+          >
+            <Minus size={16} />
           </button>
         </div>
 
