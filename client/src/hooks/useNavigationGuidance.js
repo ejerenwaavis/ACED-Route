@@ -17,6 +17,7 @@ export function useNavigationGuidance({
   onRerouteNeeded,
   isMuted = false,
   language = getLanguage(),
+  enabled = false,
 }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [distanceToManeuver, setDistanceToManeuver] = useState(0);
@@ -63,17 +64,31 @@ export function useNavigationGuidance({
     setIsRecalculating(false);
     spokenFlags.current = {};
     offRouteTicks.current = 0;
+    lastSpokenText.current = '';
   }, [route]);
+
+  // Silence TTS immediately when navigation is disabled / exited
+  useEffect(() => {
+    if (!enabled) {
+      spokenFlags.current = {};
+      lastSpokenText.current = '';
+      routingService.stopSpeech();
+    }
+  }, [enabled]);
 
   // Voice announcement helper with deduplication
   const announce = (text) => {
-    if (isMuted || !text || text === lastSpokenText.current) return;
+    if (!enabled || isMuted || !text || text === lastSpokenText.current) return;
     lastSpokenText.current = text;
     routingService.speak(text, { lang: language });
   };
 
   // Main guidance evaluation loop on each GPS fix
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     if (!route || !route.coordinates || route.coordinates.length === 0 || !currentLocation) {
       return;
     }
@@ -191,7 +206,7 @@ export function useNavigationGuidance({
         announce(arrivalMsg);
       }
     }
-  }, [currentLocation, route, stepMarks, polylineDistances, language, isMuted]);
+  }, [currentLocation, route, stepMarks, polylineDistances, language, isMuted, enabled]);
 
   const currentInstruction = route?.instructions?.[currentStepIndex];
   const nextInstruction = route?.instructions?.[currentStepIndex + 1];

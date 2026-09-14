@@ -11,6 +11,13 @@
  * @param {'street'|'dark'} options.theme - Visual style ('street' for day navigation, 'dark' for night)
  * @returns {object} Valid MapLibre Style Specification v8 object
  */
+function getGlyphsUrl() {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return `${window.location.origin}/fonts/{fontstack}/{range}.pbf`;
+  }
+  return '/fonts/{fontstack}/{range}.pbf';
+}
+
 export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 'street' } = {}) {
   // If offline mode is enabled and PMTiles URL is available, use local vector tiles
   if (isOffline && pmtilesUrl) {
@@ -22,7 +29,7 @@ export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 's
     return {
       version: 8,
       name: 'ACED Route Night Dark',
-      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      glyphs: getGlyphsUrl(),
       sources: {
         'esri-dark-base': {
           type: 'raster',
@@ -64,7 +71,7 @@ export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 's
   return {
     version: 8,
     name: 'ACED Route World Street',
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    glyphs: getGlyphsUrl(),
     sources: {
       'esri-street': {
         type: 'raster',
@@ -95,7 +102,7 @@ export function buildOfflineDarkStyle(pmtilesUrl) {
   return {
     version: 8,
     name: 'ACED Route Dark Offline',
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    glyphs: getGlyphsUrl(),
     sources: {
       protomaps: {
         type: 'vector',

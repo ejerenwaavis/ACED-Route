@@ -27,51 +27,77 @@ import { useLanguage } from '../utils/i18n';
 
 /**
  * Helper to extract valid [lng, lat] from any stop shape.
+ * Handles [lng, lat], [lat, lng], and object forms ({ lat, lng } / { latitude, longitude }).
  */
 function getStopCoords(stop) {
   if (!stop) return null;
+
+  // 1. Array coordinates: [lng, lat]
   const raw = stop.address?.location?.coordinates || stop.coordinates || stop.location?.coordinates;
   if (Array.isArray(raw) && raw.length >= 2) {
-    const lng = parseFloat(raw[0]);
-    const lat = parseFloat(raw[1]);
+    let lng = parseFloat(raw[0]);
+    let lat = parseFloat(raw[1]);
+    // Safety check if coordinates were stored as [lat, lng] instead of [lng, lat]
+    if (lat < 0 && lng > 0) {
+      const tmp = lng;
+      lng = lat;
+      lat = tmp;
+    }
     if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) {
       return [lng, lat];
     }
   }
+
+  // 2. Object latitude/longitude fields
+  const obj = stop.address || stop;
+  const latVal = obj.latitude ?? obj.lat;
+  const lngVal = obj.longitude ?? obj.lng ?? obj.lon;
+  if (latVal != null && lngVal != null) {
+    let lat = parseFloat(latVal);
+    let lng = parseFloat(lngVal);
+    if (lat < 0 && lng > 0) {
+      const tmp = lng;
+      lng = lat;
+      lat = tmp;
+    }
+    if (!isNaN(lng) && !isNaN(lat) && Math.abs(lng) <= 180 && Math.abs(lat) <= 90) {
+      return [lng, lat];
+    }
+  }
+
   return null;
 }
 
 /**
- * Builds GeoJSON FeatureCollection for all stops.
+ * Builds standard GeoJSON FeatureCollection for all stops.
  * Rendered via GPU WebGL circle and symbol layers (zero-lag 120fps panning).
  */
 function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
   const features = [];
-  if (!Array.isArray(stopsList)) return { type: 'FeatureCollection', features };
+  if (Array.isArray(stopsList)) {
+    stopsList.forEach((stop, idx) => {
+      const coords = getStopCoords(stop);
+      if (!coords) return;
+      const stopNumber = idx + 1;
+      const isCurrentActive = idx === activeIdx;
+      const isSelected = idx === selectedIdx;
 
-  stopsList.forEach((stop, idx) => {
-    const coords = getStopCoords(stop);
-    if (!coords) return;
-    const stopNumber = idx + 1;
-    const isCurrentActive = idx === activeIdx;
-    const isDelivered = stop.status === 'delivered';
-    const isSelected = idx === selectedIdx;
-
-    features.push({
-      type: 'Feature',
-      geometry: {
-        type: 'Point',
-        coordinates: coords
-      },
-      properties: {
-        stopIndex: idx,
-        stopNumber: String(stopNumber),
-        status: stop.status || 'pending',
-        isActive: isCurrentActive,
-        isSelected: isSelected
-      }
+      features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: coords
+        },
+        properties: {
+          stopIndex: idx,
+          stopNumber: String(stopNumber),
+          status: stop.status || 'pending',
+          isActive: isCurrentActive,
+          isSelected: isSelected
+        }
+      });
     });
-  });
+  }
 
   return {
     type: 'FeatureCollection',
@@ -80,69 +106,70 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
 }
 
 /**
- * Builds GeoJSON LineString connecting all manifest stops in sequence.
+ * Builds standard GeoJSON FeatureCollection LineString connecting all manifest stops in sequence.
  */
 function buildSequenceRouteGeoJSON(stopsList) {
-  if (!Array.isArray(stopsList)) return { type: 'FeatureCollection', features: [] };
-  const validCoords = stopsList.map(getStopCoords).filter(Boolean);
+  const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
   if (validCoords.length < 2) {
     return { type: 'FeatureCollection', features: [] };
   }
   return {
-    type: 'Feature',
-    geometry: {
-      type: 'LineString',
-      coordinates: validCoords
-    },
-    properties: {}
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: validCoords
+        },
+        properties: {}
+      }
+    ]
   };
 }
 
 /**
- * Builds GeoJSON LineString for active target route leg.
+ * Builds standard GeoJSON FeatureCollection LineString for active target route leg.
  */
 function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driverLoc) {
+  let coords = null;
   if (activeRouteCoords && activeRouteCoords.length > 1) {
+    coords = activeRouteCoords;
+  } else if (Array.isArray(stopsList) && stopsList.length > 0) {
+    const targetStop = stopsList[activeIdx];
+    const targetCoords = getStopCoords(targetStop);
+    if (targetCoords) {
+      let originCoords = null;
+      const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+      const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+
+      if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+        originCoords = [dlLng, dlLat];
+      } else if (activeIdx > 0) {
+        originCoords = getStopCoords(stopsList[activeIdx - 1]);
+      } else if (stopsList.length > 1) {
+        originCoords = getStopCoords(stopsList[1]);
+      }
+
+      if (originCoords && (originCoords[0] !== targetCoords[0] || originCoords[1] !== targetCoords[1])) {
+        coords = [originCoords, targetCoords];
+      }
+    }
+  }
+
+  if (coords && coords.length >= 2) {
     return {
-      type: 'Feature',
-      geometry: {
-        type: 'LineString',
-        coordinates: activeRouteCoords
-      },
-      properties: {}
-    };
-  }
-
-  if (!Array.isArray(stopsList) || !stopsList.length) {
-    return { type: 'FeatureCollection', features: [] };
-  }
-
-  const targetStop = stopsList[activeIdx];
-  const targetCoords = getStopCoords(targetStop);
-  if (!targetCoords) {
-    return { type: 'FeatureCollection', features: [] };
-  }
-
-  let originCoords = null;
-  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
-  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
-
-  if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
-    originCoords = [dlLng, dlLat];
-  } else if (activeIdx > 0) {
-    originCoords = getStopCoords(stopsList[activeIdx - 1]);
-  } else if (stopsList.length > 1) {
-    originCoords = getStopCoords(stopsList[1]);
-  }
-
-  if (originCoords && (originCoords[0] !== targetCoords[0] || originCoords[1] !== targetCoords[1])) {
-    return {
-      type: 'Feature',
-      geometry: {
-        type: 'LineString',
-        coordinates: [originCoords, targetCoords]
-      },
-      properties: {}
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: coords
+          },
+          properties: {}
+        }
+      ]
     };
   }
 
@@ -150,7 +177,7 @@ function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driver
 }
 
 /**
- * Builds GeoJSON Point for driver GPS location puck.
+ * Builds standard GeoJSON FeatureCollection Point for driver GPS location puck.
  */
 function buildDriverLocationGeoJSON(driverLoc) {
   const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
@@ -176,6 +203,36 @@ function buildDriverLocationGeoJSON(driverLoc) {
     type: 'FeatureCollection',
     features: []
   };
+}
+
+/**
+ * Safely adds GeoJSON source to MapLibre instance without throwing duplicate ID errors.
+ */
+function safeAddSource(map, id, sourceDef) {
+  try {
+    if (!map.getSource(id)) {
+      map.addSource(id, sourceDef);
+    }
+  } catch (e) {
+    console.warn(`[MapView] safeAddSource notice (${id}):`, e);
+  }
+}
+
+/**
+ * Safely adds layer to MapLibre instance without throwing duplicate ID errors.
+ */
+function safeAddLayer(map, layerDef, beforeId) {
+  try {
+    if (!map.getLayer(layerDef.id)) {
+      if (beforeId && map.getLayer(beforeId)) {
+        map.addLayer(layerDef, beforeId);
+      } else {
+        map.addLayer(layerDef);
+      }
+    }
+  } catch (e) {
+    console.warn(`[MapView] safeAddLayer notice (${layerDef.id}):`, e);
+  }
 }
 
 export default function MapView({
@@ -279,10 +336,14 @@ export default function MapView({
     };
   }, [isFullscreen]);
 
+  const isSettingUpRef = useRef(false);
+
   // Add all WebGL vector sources and layers with immediate data
   const setupLayers = useCallback((map) => {
-    if (!map) return;
+    if (!map || isSettingUpRef.current) return;
+    if (!map.isStyleLoaded()) return;
 
+    isSettingUpRef.current = true;
     try {
       const curStops = stopsRef.current || [];
       const curActiveIdx = activeIndexRef.current || 0;
@@ -290,183 +351,178 @@ export default function MapView({
       const curDriverLoc = driverLocationRef.current;
 
       // A. Sequence Route Line (Dashed Muted Electric Blue)
-      if (!map.getSource('sequence-route-source')) {
-        map.addSource('sequence-route-source', {
-          type: 'geojson',
-          data: buildSequenceRouteGeoJSON(curStops)
-        });
+      safeAddSource(map, 'sequence-route-source', {
+        type: 'geojson',
+        data: buildSequenceRouteGeoJSON(curStops)
+      });
 
-        // Sequence Glow Casing
-        map.addLayer({
-          id: 'sequence-route-casing',
-          type: 'line',
-          source: 'sequence-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': '#0369a1',
-            'line-width': 7,
-            'line-opacity': 0.35
-          }
-        });
+      // Sequence Glow Casing
+      safeAddLayer(map, {
+        id: 'sequence-route-casing',
+        type: 'line',
+        source: 'sequence-route-source',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#0369a1',
+          'line-width': 7,
+          'line-opacity': 0.35
+        }
+      });
 
-        // Sequence Core Line
-        map.addLayer({
-          id: 'sequence-route',
-          type: 'line',
-          source: 'sequence-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': '#38bdf8',
-            'line-width': 3.5,
-            'line-dasharray': [2, 1.5],
-            'line-opacity': 0.85
-          }
-        });
-      }
+      // Sequence Core Line
+      safeAddLayer(map, {
+        id: 'sequence-route',
+        type: 'line',
+        source: 'sequence-route-source',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#38bdf8',
+          'line-width': 3.5,
+          'line-dasharray': [2, 1.5],
+          'line-opacity': 0.85
+        }
+      });
 
       // B. Active Target Route Leg (Solid Neon Green with glowing casing)
-      if (!map.getSource('active-route-source')) {
-        map.addSource('active-route-source', {
-          type: 'geojson',
-          data: buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc)
-        });
+      safeAddSource(map, 'active-route-source', {
+        type: 'geojson',
+        data: buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc)
+      });
 
-        // Active Glow Casing
-        map.addLayer({
-          id: 'active-route-casing',
-          type: 'line',
-          source: 'active-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': '#15803d',
-            'line-width': 10,
-            'line-opacity': 0.45
-          }
-        });
+      // Active Glow Casing
+      safeAddLayer(map, {
+        id: 'active-route-casing',
+        type: 'line',
+        source: 'active-route-source',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#15803d',
+          'line-width': 10,
+          'line-opacity': 0.45
+        }
+      });
 
-        // Active Core Line
-        map.addLayer({
-          id: 'active-route',
-          type: 'line',
-          source: 'active-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': '#22c55e',
-            'line-width': 5.5,
-            'line-opacity': 1.0
-          }
-        });
-      }
+      // Active Core Line
+      safeAddLayer(map, {
+        id: 'active-route',
+        type: 'line',
+        source: 'active-route-source',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#22c55e',
+          'line-width': 5.5,
+          'line-opacity': 1.0
+        }
+      });
 
       // C. Driver GPS Location Source & WebGL Puck Layers
-      if (!map.getSource('driver-location-source')) {
-        map.addSource('driver-location-source', {
-          type: 'geojson',
-          data: buildDriverLocationGeoJSON(curDriverLoc)
-        });
+      safeAddSource(map, 'driver-location-source', {
+        type: 'geojson',
+        data: buildDriverLocationGeoJSON(curDriverLoc)
+      });
 
-        // Driver Pulse Halo
-        map.addLayer({
-          id: 'driver-puck-halo',
-          type: 'circle',
-          source: 'driver-location-source',
-          paint: {
-            'circle-radius': 16,
-            'circle-color': '#38bdf8',
-            'circle-opacity': 0.35,
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#38bdf8'
-          }
-        });
+      // Driver Pulse Halo
+      safeAddLayer(map, {
+        id: 'driver-puck-halo',
+        type: 'circle',
+        source: 'driver-location-source',
+        paint: {
+          'circle-radius': 16,
+          'circle-color': '#38bdf8',
+          'circle-opacity': 0.35,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#38bdf8'
+        }
+      });
 
-        // Driver Core Dot
-        map.addLayer({
-          id: 'driver-puck-core',
-          type: 'circle',
-          source: 'driver-location-source',
-          paint: {
-            'circle-radius': 7.5,
-            'circle-color': '#0284c7',
-            'circle-stroke-width': 2.5,
-            'circle-stroke-color': '#ffffff'
-          }
-        });
-      }
+      // Driver Core Dot
+      safeAddLayer(map, {
+        id: 'driver-puck-core',
+        type: 'circle',
+        source: 'driver-location-source',
+        paint: {
+          'circle-radius': 7.5,
+          'circle-color': '#0284c7',
+          'circle-stroke-width': 2.5,
+          'circle-stroke-color': '#ffffff'
+        }
+      });
 
       // D. Stop Markers WebGL Source & Native WebGL Circle/Symbol Layers
-      if (!map.getSource('stops-source')) {
-        map.addSource('stops-source', {
-          type: 'geojson',
-          data: buildStopsGeoJSON(curStops, curActiveIdx, null)
-        });
+      safeAddSource(map, 'stops-source', {
+        type: 'geojson',
+        data: buildStopsGeoJSON(curStops, curActiveIdx, null)
+      });
 
-        // Glowing radar pulse on GPU for active target stop
-        map.addLayer({
-          id: 'stops-active-halo',
-          type: 'circle',
-          source: 'stops-source',
-          filter: ['==', ['get', 'isActive'], true],
-          paint: {
-            'circle-radius': 22,
-            'circle-color': '#22c55e',
-            'circle-opacity': 0.4,
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#4ade80'
-          }
-        });
+      // Glowing radar pulse on GPU for active target stop
+      safeAddLayer(map, {
+        id: 'stops-active-halo',
+        type: 'circle',
+        source: 'stops-source',
+        filter: ['==', ['get', 'isActive'], true],
+        paint: {
+          'circle-radius': 22,
+          'circle-color': '#22c55e',
+          'circle-opacity': 0.4,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#4ade80'
+        }
+      });
 
-        // Crisp Circle Pin drawn purely on GPU in WebGL
-        map.addLayer({
-          id: 'stops-pin-outer',
-          type: 'circle',
-          source: 'stops-source',
-          paint: {
-            'circle-radius': [
-              'case',
-              ['==', ['get', 'isSelected'], true], 17,
-              ['==', ['get', 'isActive'], true], 15,
-              12.5
-            ],
-            'circle-color': [
-              'case',
-              ['==', ['get', 'isSelected'], true], '#38bdf8',
-              ['==', ['get', 'isActive'], true], '#16a34a',
-              ['==', ['get', 'status'], 'delivered'], '#334155',
-              '#0284c7'
-            ],
-            'circle-stroke-width': [
-              'case',
-              ['==', ['get', 'isSelected'], true], 3,
-              ['==', ['get', 'isActive'], true], 2.5,
-              2
-            ],
-            'circle-stroke-color': '#ffffff'
-          }
-        });
+      // Crisp Circle Pin drawn purely on GPU in WebGL
+      safeAddLayer(map, {
+        id: 'stops-pin-outer',
+        type: 'circle',
+        source: 'stops-source',
+        paint: {
+          'circle-radius': [
+            'case',
+            ['==', ['get', 'isSelected'], true], 17,
+            ['==', ['get', 'isActive'], true], 15,
+            12.5
+          ],
+          'circle-color': [
+            'case',
+            ['==', ['get', 'isSelected'], true], '#38bdf8',
+            ['==', ['get', 'isActive'], true], '#16a34a',
+            ['==', ['get', 'status'], 'delivered'], '#334155',
+            '#0284c7'
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['==', ['get', 'isSelected'], true], 3,
+            ['==', ['get', 'isActive'], true], 2.5,
+            2
+          ],
+          'circle-stroke-color': '#ffffff'
+        }
+      });
 
-        // Stop Number Label centered directly inside the circle pin
-        map.addLayer({
-          id: 'stops-number-label',
-          type: 'symbol',
-          source: 'stops-source',
-          layout: {
-            'text-field': ['to-string', ['get', 'stopNumber']],
-            'text-size': [
-              'case',
-              ['==', ['get', 'isSelected'], true], 11.5,
-              ['==', ['get', 'isActive'], true], 11,
-              10
-            ],
-            'text-font': ['Open Sans Bold', 'Open Sans Regular'],
-            'text-allow-overlap': true,
-            'text-ignore-placement': true
-          },
-          paint: {
-            'text-color': '#ffffff'
-          }
-        });
+      // Stop Number Label centered directly inside the circle pin
+      safeAddLayer(map, {
+        id: 'stops-number-label',
+        type: 'symbol',
+        source: 'stops-source',
+        layout: {
+          'text-field': ['to-string', ['get', 'stopNumber']],
+          'text-size': [
+            'case',
+            ['==', ['get', 'isSelected'], true], 11.5,
+            ['==', ['get', 'isActive'], true], 11,
+            10
+          ],
+          'text-font': ['Open Sans Bold'],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true
+        },
+        paint: {
+          'text-color': '#ffffff'
+        }
+      });
 
-        // Immediate click interaction on GPU stop symbols
+      // Immediate click interaction on GPU stop symbols
+      if (!map._hasStopClickListeners) {
+        map._hasStopClickListeners = true;
         const handleStopClick = (e) => {
           if (!e.features || !e.features.length) return;
           const props = e.features[0].properties;
@@ -496,6 +552,8 @@ export default function MapView({
       setMapLoaded(true);
     } catch (err) {
       console.warn('[MapView] Layer setup notice:', err);
+    } finally {
+      isSettingUpRef.current = false;
     }
   }, []);
 
@@ -523,22 +581,29 @@ export default function MapView({
       attributionControl: false
     });
 
-    map.on('load', () => {
-      setupLayers(map);
-    });
+    const onReady = () => {
+      if (map.isStyleLoaded()) {
+        setupLayers(map);
+      }
+    };
 
+    map.on('load', onReady);
     map.on('styledata', () => {
       if (map.isStyleLoaded() && !map.getSource('stops-source')) {
         setupLayers(map);
       }
     });
 
+    if (map.isStyleLoaded()) {
+      setupLayers(map);
+    }
+
     return () => {
       map.remove();
       mapRef.current = null;
       setMapLoaded(false);
     };
-  }, [activeRegion, nativePmtilesPath, offlineMode, setupLayers]);
+  }, [activeRegion, nativePmtilesPath, offlineMode, setupLayers, mapTheme]);
 
   // Handle Fullscreen resize
   useEffect(() => {
@@ -556,42 +621,48 @@ export default function MapView({
   // Update WebGL Stop Markers (Zero-Lag GPU Rendering)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded) return;
+    if (!map) return;
 
     try {
       const stopsSource = map.getSource('stops-source');
       if (stopsSource) {
         stopsSource.setData(buildStopsGeoJSON(stops, activeIndex, selectedStopIndex));
+      } else if (map.isStyleLoaded()) {
+        setupLayers(map);
       }
     } catch (err) {
       console.warn('[MapView] Failed to update stops data:', err);
     }
-  }, [stops, activeIndex, selectedStopIndex, mapLoaded]);
+  }, [stops, activeIndex, selectedStopIndex, setupLayers]);
 
   // Update WebGL Driver GPS Puck
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded) return;
+    if (!map) return;
 
     try {
       const driverSource = map.getSource('driver-location-source');
       if (driverSource) {
         driverSource.setData(buildDriverLocationGeoJSON(driverLocation));
+      } else if (map.isStyleLoaded()) {
+        setupLayers(map);
       }
     } catch (err) {
       console.warn('[MapView] Failed to update driver location:', err);
     }
-  }, [driverLocation, mapLoaded]);
+  }, [driverLocation, setupLayers]);
 
   // Update Polylines: Sequence Route (Blue) & Active Route (Green)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded) return;
+    if (!map) return;
 
     try {
       const seqSource = map.getSource('sequence-route-source');
       if (seqSource) {
         seqSource.setData(buildSequenceRouteGeoJSON(stops));
+      } else if (map.isStyleLoaded()) {
+        setupLayers(map);
       }
 
       const activeSource = map.getSource('active-route-source');
@@ -601,19 +672,25 @@ export default function MapView({
     } catch (err) {
       console.warn('[MapView] Failed to update route polylines:', err);
     }
-  }, [stops, activeIndex, activeRouteCoordinates, driverLocation, mapLoaded]);
+  }, [stops, activeIndex, activeRouteCoordinates, driverLocation, setupLayers]);
 
   // 7. Camera Auto-framing
   const fitMapToBounds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    const validCoords = stops.map(getStopCoords).filter(Boolean);
+    const validCoords = (stops || []).map(getStopCoords).filter(Boolean);
     if (!validCoords.length) return;
 
     const bounds = new LngLatBounds();
     validCoords.forEach((c) => bounds.extend(c));
-    if (driverLocation) bounds.extend(driverLocation);
+    if (driverLocation) {
+      const dlLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
+      const dlLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
+      if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+        bounds.extend([dlLng, dlLat]);
+      }
+    }
 
     map.fitBounds(bounds, {
       padding: { top: 70, bottom: 90, left: 50, right: 50 },
@@ -627,7 +704,7 @@ export default function MapView({
     if (mapLoaded && stops.length > 0) {
       fitMapToBounds();
     }
-  }, [mapLoaded, stops.length]);
+  }, [mapLoaded, stops.length, fitMapToBounds]);
 
   const handleCenterActiveStop = () => {
     const map = mapRef.current;

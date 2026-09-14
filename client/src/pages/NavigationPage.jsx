@@ -153,6 +153,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     onRerouteNeeded: handleRerouteNeeded,
     isMuted,
     language: getLanguage(),
+    enabled: isNavigating,
   });
 
   // Attach native foreground tracking listener when isNavigating is active
