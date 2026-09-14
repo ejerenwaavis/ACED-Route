@@ -170,11 +170,15 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       // Fallback direct navigation leg so the line between car and stop is ALWAYS rendered
     }
 
-    // Direct line between driver and active stop (ensures line is NEVER invisible)
-    const directCoords = [
-      [originLatLng[1], originLatLng[0]],
-      [targetLatLng[1], targetLatLng[0]]
-    ];
+    // Direct multi-point line between driver and active stop (ensures line is NEVER invisible)
+    const steps = 15;
+    const directCoords = [];
+    for (let i = 0; i <= steps; i++) {
+      const frac = i / steps;
+      const lat = originLatLng[0] + (targetLatLng[0] - originLatLng[0]) * frac;
+      const lng = originLatLng[1] + (targetLatLng[1] - originLatLng[1]) * frac;
+      directCoords.push([lng, lat]);
+    }
     setActiveRouteCoords(directCoords);
     const distMeters = haversineDistance(originLatLng[0], originLatLng[1], targetLatLng[0], targetLatLng[1]);
     setCurrentRouteResult({
@@ -198,11 +202,13 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     if (computeLegRef.current) computeLegRef.current();
   }, [currentIndex, activeStop]);
 
-  // Re-calculate route once initial GPS lock is acquired
+  // Re-calculate route once initial GPS lock is acquired or when active stop changes
   useEffect(() => {
-    if (driverLocation && !hasGpsLockedRef.current) {
-      hasGpsLockedRef.current = true;
-      if (computeLegRef.current) computeLegRef.current();
+    if (driverLocation) {
+      if (!hasGpsLockedRef.current) {
+        hasGpsLockedRef.current = true;
+        if (computeLegRef.current) computeLegRef.current();
+      }
     }
   }, [driverLocation]);
 
@@ -269,23 +275,33 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   }, []);
 
   // In-App Turn-by-Turn Navigation Launch
-  const handleLaunchNavigation = async () => {
-    if (!activeStop) return;
-
-    // Intercept web browser: native app is required for turn-by-turn navigation
-    if (!Capacitor.isNativePlatform()) {
-      setShowNativeHandoff(true);
-      return;
+  const handleLaunchNavigation = async (targetIndex) => {
+    if (targetIndex != null && targetIndex >= 0 && targetIndex < stops.length) {
+      setCurrentIndex(targetIndex);
     }
-
     setIsNavigating(true);
-    await routingService.startNavigationTracking();
+    if (computeLegRef.current) {
+      computeLegRef.current();
+    }
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await routingService.startNavigationTracking();
+      } catch (err) {
+        console.warn('Native tracking error:', err);
+      }
+    }
   };
 
   const handleExitNavigation = async () => {
     setIsNavigating(false);
-    await routingService.stopNavigationTracking();
-    await routingService.stopSpeech();
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await routingService.stopNavigationTracking();
+        await routingService.stopSpeech();
+      } catch (err) {
+        console.warn('Stop tracking error:', err);
+      }
+    }
   };
 
   // External Maps fallback
@@ -534,7 +550,11 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
         activeRouteCoordinates={activeRouteCoords}
         driverLocation={driverLocation}
         onSelectStop={(idx) => setCurrentIndex(idx)}
-        onNavigateHere={(idx) => setCurrentIndex(idx)}
+        onNavigateHere={(idx) => {
+          setCurrentIndex(idx);
+          handleLaunchNavigation(idx);
+        }}
+        onStartNavigation={handleLaunchNavigation}
         onNavigateInSequence={() => advanceToNextPending(stops)}
         onMarkDelivered={handleMarkDelivered}
         onSkipStop={handleSkipStop}

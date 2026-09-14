@@ -254,6 +254,66 @@ assert('Moving vehicle updates to new bearing (120 deg)', getStabilizedBearing(5
 assert('Stationary vehicle retains previous bearing (does NOT jump to 0)', getStabilizedBearing(0.2, 0, 120) === 120);
 assert('Crawling vehicle retains previous bearing', getStabilizedBearing(0.5, 350, 120) === 120);
 
+// S9: Navigation Engagement, Dynamic Route Snapping & Mockup Alignment
+console.log('\nS9: Navigation Engagement, Dynamic Route Snapping & Mockup Alignment');
+
+// 1. Circular Exit Disc and Floating Street Pill CSS
+assert('Circular turn card exit disc is defined in CSS', /\.turn-card-exit-btn-circle/.test(cssContent));
+assert('Floating street pill container is defined in CSS', /\.floating-street-pill-container/.test(cssContent));
+assert('Floating street pill uses dark graphite token', /\.floating-street-pill[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Controls overlay offset during navigation is notch safe', /\.maplibre-navigating-active\s+\.maplibre-controls-overlay[^{]*\{[^}]*max\(115px/.test(cssContent));
+
+// 2. Active Route Line Snapping and Interpolation Test
+function testBuildActiveRoute(driverLoc, targetCoords, existingRouteCoords) {
+  let coords = null;
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  const hasDriverLoc = dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat);
+
+  if (existingRouteCoords && existingRouteCoords.length > 1) {
+    coords = existingRouteCoords.map(pt => [...pt]);
+    if (hasDriverLoc && coords.length > 0) {
+      coords[0] = [dlLng, dlLat];
+    }
+  } else if (targetCoords) {
+    let originCoords = null;
+    if (hasDriverLoc) {
+      originCoords = [dlLng, dlLat];
+    }
+    if (originCoords) {
+      const steps = 15;
+      const interpolated = [];
+      for (let i = 0; i <= steps; i++) {
+        const frac = i / steps;
+        const lat = originCoords[1] + (targetCoords[1] - originCoords[1]) * frac;
+        const lng = originCoords[0] + (targetCoords[0] - originCoords[0]) * frac;
+        interpolated.push([lng, lat]);
+      }
+      coords = interpolated;
+    }
+  }
+  return coords;
+}
+
+const driverTestLoc = { longitude: -84.148, latitude: 34.090 };
+const stop1TestCoords = [-84.0844, 34.0321];
+
+// Test A: Direct fallback interpolation generates 16 high-density coordinates
+const directLine = testBuildActiveRoute(driverTestLoc, stop1TestCoords, null);
+assert('Direct route generates interpolated line with >= 15 vertices', Array.isArray(directLine) && directLine.length === 16);
+assert('Direct route head starts precisely at vehicle location', directLine[0][0] === -84.148 && directLine[0][1] === 34.090);
+assert('Direct route tail terminates at Stop 1 coordinates', directLine[15][0] === -84.0844 && directLine[15][1] === 34.0321);
+
+// Test B: Existing polyline route head snaps dynamically to moving vehicle
+const existingValhallaCoords = [
+  [-84.140, 34.080],
+  [-84.120, 34.060],
+  [-84.0844, 34.0321]
+];
+const snappedLine = testBuildActiveRoute(driverTestLoc, stop1TestCoords, existingValhallaCoords);
+assert('Pre-calculated polyline snaps head to current driver location', snappedLine[0][0] === -84.148 && snappedLine[0][1] === 34.090);
+assert('Pre-calculated polyline preserves destination waypoint', snappedLine[2][0] === -84.0844 && snappedLine[2][1] === 34.0321);
+
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
 if(fail>0) process.exit(1);

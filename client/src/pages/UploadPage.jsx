@@ -86,6 +86,12 @@ export default function UploadPage({ onManifestUploaded }) {
   // Load sample manifest for quick testing (Picks random 10-stop sequential slice from real Suwanee pool)
   const handleLoadSample = async () => {
     const randomSlice = getRandomSampleSlice(10);
+    // Pre-cache coordinates for each stop in the slice so zero Google Geocoding API quota is consumed
+    randomSlice.forEach((s) => {
+      if (s.address && s.lng != null && s.lat != null) {
+        setCachedCoordinates(s.address, [s.lng, s.lat]);
+      }
+    });
     const csvContent = formatSampleSliceToCSV(randomSlice);
     setRawText(csvContent);
     const result = await parseManifestContent(csvContent);

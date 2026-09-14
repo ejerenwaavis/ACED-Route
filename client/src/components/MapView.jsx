@@ -145,20 +145,26 @@ function buildSequenceRouteGeoJSON(stopsList) {
 
 /**
  * Builds standard GeoJSON FeatureCollection LineString for active target route leg.
+ * Guarantees connection to vehicle location and multi-point geodesic density.
  */
 function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driverLoc) {
   let coords = null;
+  const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
+  const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
+  const hasDriverLoc = dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat);
+
   if (activeRouteCoords && activeRouteCoords.length > 1) {
-    coords = activeRouteCoords;
+    coords = activeRouteCoords.map(pt => [...pt]);
+    // Snap route head directly to vehicle location so line is never disconnected
+    if (hasDriverLoc && coords.length > 0) {
+      coords[0] = [dlLng, dlLat];
+    }
   } else if (Array.isArray(stopsList) && stopsList.length > 0) {
     const targetStop = stopsList[activeIdx];
     const targetCoords = getStopCoords(targetStop);
     if (targetCoords) {
       let originCoords = null;
-      const dlLng = Array.isArray(driverLoc) ? driverLoc[0] : driverLoc?.longitude;
-      const dlLat = Array.isArray(driverLoc) ? driverLoc[1] : driverLoc?.latitude;
-
-      if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+      if (hasDriverLoc) {
         originCoords = [dlLng, dlLat];
       } else if (activeIdx > 0) {
         originCoords = getStopCoords(stopsList[activeIdx - 1]);
@@ -167,7 +173,16 @@ function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords, driver
       }
 
       if (originCoords && (originCoords[0] !== targetCoords[0] || originCoords[1] !== targetCoords[1])) {
-        coords = [originCoords, targetCoords];
+        // High-density geodesic interpolation (15 vertices) ensuring lines are visible at every zoom level
+        const steps = 15;
+        const interpolated = [];
+        for (let i = 0; i <= steps; i++) {
+          const frac = i / steps;
+          const lat = originCoords[1] + (targetCoords[1] - originCoords[1]) * frac;
+          const lng = originCoords[0] + (targetCoords[0] - originCoords[0]) * frac;
+          interpolated.push([lng, lat]);
+        }
+        coords = interpolated;
       }
     }
   }
@@ -264,6 +279,7 @@ export default function MapView({
   driverLocation = null,
   onSelectStop,
   onNavigateHere,
+  onStartNavigation,
   onNavigateInSequence,
   regionId = null,
   guidance = null,
@@ -303,20 +319,39 @@ export default function MapView({
   const [userIsPanning, setUserIsPanning] = useState(false);
   const userIsPanningRef = useRef(false);
   const hasInitialFitRef = useRef(false);
+  const hasGpsFittedRef = useRef(false);
   const [showExpandedStopCard, setShowExpandedStopCard] = useState(false);
   const [chipDismissed, setChipDismissed] = useState(false);
 
-  // Auto-engage fullscreen when navigation begins
+  // Auto-engage fullscreen & follow vehicle when navigation begins
+  const lastCameraBearingRef = useRef(0);
+
   useEffect(() => {
     if (isNavigating) {
       setIsFullscreen(true);
+      setUserIsPanning(false);
+      userIsPanningRef.current = false;
+      const map = mapRef.current;
+      const curDriverLoc = driverLocationRef.current;
+      if (map && curDriverLoc) {
+        const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
+        const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
+        if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+          map.flyTo({
+            center: [dlLng, dlLat],
+            zoom: 17,
+            pitch: 50,
+            bearing: lastCameraBearingRef.current || 0,
+            duration: 800,
+            essential: true
+          });
+        }
+      }
     }
   }, [isNavigating]);
 
   // 3D Perspective Bearing-Following Camera during Active Navigation
-  // Only follows if the user is NOT actively panning/exploring the map
-  const lastCameraBearingRef = useRef(0);
-
+  // Follows smoothly without jitter when driver is moving
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !isNavigating || !driverLocation || userIsPanning) return;
@@ -338,7 +373,7 @@ export default function MapView({
         bearing: lastCameraBearingRef.current,
         pitch: 50,
         zoom: 17,
-        duration: 900,
+        duration: 700,
         essential: true,
       });
     }
@@ -847,13 +882,18 @@ export default function MapView({
     });
   }, [stops]);
 
-  // Initial fit: runs ONCE when stops first load
+  // Initial fit: runs when stops and/or driverLocation first become available
   useEffect(() => {
-    if (mapLoaded && stops.length > 0 && !hasInitialFitRef.current) {
-      hasInitialFitRef.current = true;
-      fitMapToBounds();
+    if (mapLoaded && stops.length > 0) {
+      if (!hasInitialFitRef.current) {
+        hasInitialFitRef.current = true;
+        fitMapToBounds();
+      } else if (driverLocation && !hasGpsFittedRef.current && !isNavigating) {
+        hasGpsFittedRef.current = true;
+        fitMapToBounds();
+      }
     }
-  }, [mapLoaded, stops.length, fitMapToBounds]);
+  }, [mapLoaded, stops.length, driverLocation, isNavigating, fitMapToBounds]);
 
   // Explicit Recenter Button Handler
   const handleRecenter = () => {
@@ -865,17 +905,18 @@ export default function MapView({
     if (!map) return;
 
     const curDriverLoc = driverLocationRef.current;
-    if (isNavigating && curDriverLoc) {
+    if (curDriverLoc) {
       const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
       const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
       const bearing = (!Array.isArray(curDriverLoc) && curDriverLoc?.bearing != null) ? curDriverLoc.bearing : 0;
       if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
         map.flyTo({
           center: [dlLng, dlLat],
-          bearing: bearing,
-          pitch: 55,
+          bearing: isNavigating ? bearing : 0,
+          pitch: isNavigating ? 50 : 0,
           zoom: 17,
-          essential: true
+          essential: true,
+          duration: 800
         });
         return;
       }
@@ -1029,6 +1070,22 @@ export default function MapView({
           t={t}
         />
 
+        {/* Floating Current Street Pill (Image 3 Mockup) */}
+        {isNavigating && (() => {
+          const street = guidance?.currentInstruction?.streetNames?.[0]
+            || (stops && stops[activeIndex]?.address?.street)
+            || (stops && stops[activeIndex]?.address?.raw)
+            || '';
+          if (!street) return null;
+          return (
+            <div className="floating-street-pill-container">
+              <div className="floating-street-pill">
+                <span>{street}</span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Active Navigation Floating Bottom Chip or Full Sheet (Phase D) */}
         {(() => {
           const activeStop = stops && stops[activeIndex] ? stops[activeIndex] : null;
@@ -1068,10 +1125,16 @@ export default function MapView({
                 etaStr={etaStr}
                 isFloating={true}
                 onNavigate={() => {
-                  if (onNavigateHere) onNavigateHere(displayStopIndex);
+                  if (onStartNavigation) {
+                    onStartNavigation(displayStopIndex);
+                  } else if (onNavigateHere) {
+                    onNavigateHere(displayStopIndex);
+                  }
                   setSelectedStop(null);
                   setSelectedStopIndex(null);
                   setShowExpandedStopCard(false);
+                  setUserIsPanning(false);
+                  userIsPanningRef.current = false;
                 }}
                 onMarkDelivered={isDisplayNextStop ? onMarkDelivered : null}
                 onSkipStop={isDisplayNextStop ? onSkipStop : null}

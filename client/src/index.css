@@ -1014,6 +1014,24 @@ body {
   min-width: 0;
 }
 
+.turn-maneuver-headline {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-distance-subtitle {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #94A3B8;
+  margin-top: 2px;
+}
+
 .turn-distance-label {
   font-size: 1.75rem;
   font-weight: 800;
@@ -1030,6 +1048,29 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Circular Close / Exit Disc (Image 3 Mockup) */
+.turn-card-exit-btn-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.turn-card-exit-btn-circle:hover {
+  background: rgba(229, 72, 77, 0.6);
+  border-color: #E5484D;
+  transform: scale(1.05);
 }
 
 .turn-card-exit-btn {
@@ -1055,7 +1096,35 @@ body {
 
 /* Offset floating controls down so they never overlap the turn card during active navigation */
 .maplibre-navigating-active .maplibre-controls-overlay {
-  top: calc(env(safe-area-inset-top, 0px) + 8.5rem);
+  top: max(115px, calc(env(safe-area-inset-top, 0px) + 6.8rem));
+}
+
+/* Floating Current Street Pill (Image 3 Mockup) */
+.floating-street-pill-container {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 105;
+}
+
+.floating-street-pill {
+  pointer-events: auto;
+  background: var(--color-graphite, #17191C);
+  border: 1px solid var(--border, #2E3238);
+  border-radius: 24px;
+  padding: 6px 16px;
+  color: #FFFFFF;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Smooth rotational transition for vehicle marker arrow (prevents twitching / erratic spinning) */

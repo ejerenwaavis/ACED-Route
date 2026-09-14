@@ -87,25 +87,25 @@ export default function TurnInstructionCard({
             {getManeuverIcon(rawInstruction, currentInstruction?.type)}
           </div>
 
-          {/* Maneuver Distance & Street Name */}
+          {/* Maneuver Instruction & Distance */}
           <div className="turn-instruction-text-block">
-            <div className="turn-distance-label">
-              {formattedDist || '--'}
-            </div>
-            <div className="turn-street-name" title={displayInstruction}>
+            <div className="turn-maneuver-headline" title={displayInstruction}>
               {displayInstruction || 'Follow route'}
+            </div>
+            <div className="turn-distance-subtitle">
+              {formattedDist ? `${language === 'es' ? 'En' : 'In'} ${formattedDist}` : '--'}
             </div>
           </div>
 
-          {/* Quick Exit Navigation Action */}
+          {/* Clean Circular Exit Disc (Image 3 Mockup) */}
           {onExit && (
             <button
-              className="turn-card-exit-btn"
+              className="turn-card-exit-btn-circle"
               onClick={onExit}
               title={t('exitNav') || 'Exit Navigation'}
+              aria-label="Exit Navigation"
             >
-              <X size={15} />
-              <span>{t('exitNav') || 'Exit'}</span>
+              <X size={18} />
             </button>
           )}
         </div>
