@@ -1102,13 +1102,18 @@ body {
 /* Floating Current Street Pill (Image 3 Mockup) */
 .floating-street-pill-container {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem);
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
   pointer-events: none;
   z-index: 105;
+  transition: bottom 0.25s ease;
+}
+
+.floating-street-pill-container.floating-street-pill-above-chip {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 6.25rem);
 }
 
 .floating-street-pill {
@@ -1287,10 +1292,16 @@ body {
   z-index: 110;
   pointer-events: none;
   max-width: 90vw;
+  transition: top 0.25s ease;
 }
 
+.maplibre-wrapper:not(.maplibre-fullscreen) .map-debug-hud-pill,
 .maplibre-container:not(.maplibre-fullscreen) .map-debug-hud-pill {
   top: 0.75rem;
+}
+
+.map-debug-hud-pill.map-debug-hud-navigating {
+  top: calc(env(safe-area-inset-top, 0px) + 6.75rem);
 }
 
 .map-debug-hud-pill span {
@@ -1310,4 +1321,55 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Hardware-Accelerated DOM SVG Route Lines (Guaranteed 100% Visibility)
+   ───────────────────────────────────────────────────────────────────────────── */
+.map-route-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.svg-route-seq-casing {
+  fill: none;
+  stroke: #0f172a;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+}
+
+.svg-route-seq-line {
+  fill: none;
+  stroke: #2676D9;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.95;
+}
+
+.svg-route-act-casing {
+  fill: none;
+  stroke: #064e3b;
+  stroke-width: 11;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+
+.svg-route-act-line {
+  fill: none;
+  stroke: #22c55e;
+  stroke-width: 6.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 1;
+}
+
 

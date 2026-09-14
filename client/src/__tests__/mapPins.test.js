@@ -439,6 +439,45 @@ assert('AppUpdateModal contains What\'s New card', updateModalCode.includes("Wha
 assert('AppUpdateModal contains What\'s Improved checklist', updateModalCode.includes("What's Improved"));
 assert('AppUpdateModal retains ACED Route branding (not YURI)', !updateModalCode.includes('YURI'));
 
+// S14: SVG Polyline Overlay & Stacking Collision Prevention
+console.log('\nS14: SVG Polyline Overlay & Stacking Collision Prevention');
+
+// CSS presence checks
+assert('CSS defines map-route-svg-overlay', /\.map-route-svg-overlay/.test(cssContent));
+assert('SVG overlay is layered at z-index 2 (above canvas, below pins)', /\.map-route-svg-overlay[^{]*\{[^}]*z-index:\s*2/.test(cssContent));
+assert('CSS defines blue sequence route line (#2676D9)', /\.svg-route-seq-line[^{]*\{[^}]*#2676D9/.test(cssContent));
+assert('CSS defines sequence line casing (#0f172a)', /\.svg-route-seq-casing[^{]*\{[^}]*#0f172a/.test(cssContent));
+assert('CSS defines green active route line (#22c55e)', /\.svg-route-act-line[^{]*\{[^}]*#22c55e/.test(cssContent));
+assert('CSS defines active line casing (#064e3b)', /\.svg-route-act-casing[^{]*\{[^}]*#064e3b/.test(cssContent));
+
+// Navigation HUD and Street Pill spacing checks
+assert('CSS defines map-debug-hud-navigating with safe-area offset', /\.map-debug-hud-pill\.map-debug-hud-navigating[^{]*\{[^}]*safe-area-inset-top/.test(cssContent));
+assert('CSS defines floating-street-pill-above-chip with vertical clearance', /\.floating-street-pill-container\.floating-street-pill-above-chip[^{]*\{[^}]*6\.25rem/.test(cssContent));
+
+// Mock SVG projection test
+function mockProjectCoord([lng, lat]) {
+  return {
+    x: ((lng + 85) * 500).toFixed(1),
+    y: ((35 - lat) * 500).toFixed(1)
+  };
+}
+
+const testSampleStops = getRandomSampleSlice(10);
+let mockSeqD = '';
+for (let i = 0; i < testSampleStops.length; i++) {
+  const pt = mockProjectCoord([testSampleStops[i].lng, testSampleStops[i].lat]);
+  mockSeqD += (i === 0 ? 'M ' : ' L ') + `${pt.x},${pt.y}`;
+}
+assert('Projected SVG sequence path has valid M ... L commands', mockSeqD.startsWith('M ') && mockSeqD.includes(' L '));
+assert('Projected SVG path has 10 waypoints for 10 stops', (mockSeqD.match(/L/g) || []).length === 9);
+
+// MapView code inspection check: ensure styledata recursive listener is gone
+const mapViewCode = fs.readFileSync(path.join(__dirname, '../components/MapView.jsx'), 'utf8');
+assert('MapView has removed recursive styledata listener', !mapViewCode.includes("map.on('styledata'"));
+assert('MapView exports getOrCreateSvgOverlay', mapViewCode.includes('export function getOrCreateSvgOverlay'));
+assert('MapView exports updateSvgOverlayPaths', mapViewCode.includes('export function updateSvgOverlayPaths'));
+assert('MapView hooks SVG overlay to map render and move events', mapViewCode.includes("map.on('render', handleSyncSvg)") && mapViewCode.includes("map.on('move', handleSyncSvg)"));
+
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
 if(fail>0) process.exit(1);

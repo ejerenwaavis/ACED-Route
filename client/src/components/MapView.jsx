@@ -278,16 +278,14 @@ export const OVERLAY_LAYER_IDS = [
 ];
 
 /**
- * Safely adds an overlay layer to MapLibre instance with NO beforeId,
- * and immediately moves it to the top of the stack above raster tiles.
+ * Safely adds an overlay layer to MapLibre instance.
+ * Layers added without beforeId are placed at the top of the layer array naturally.
  */
 function addOverlayLayer(map, layerDef) {
   try {
     if (!map.getLayer(layerDef.id)) {
       map.addLayer(layerDef);
     }
-    // With no second argument, moveLayer pushes layer to the end of layers array = top of rendering stack
-    map.moveLayer(layerDef.id);
     return true;
   } catch (e) {
     console.error(`[MapView] addOverlayLayer FAILED (${layerDef.id}):`, e.message);
@@ -297,7 +295,7 @@ function addOverlayLayer(map, layerDef) {
 
 /**
  * Ensures all registered overlay layers are strictly above any raster basemaps.
- * Can be called during style reloads, theme switches, or styledata events.
+ * Can be called during style reloads or theme switches.
  */
 function ensureOverlaysOnTop(map) {
   if (!map) return;
@@ -308,6 +306,93 @@ function ensureOverlaysOnTop(map) {
       }
     } catch (_) {}
   });
+}
+
+/**
+ * Ensures a hardware-accelerated SVG overlay is mounted inside map.getCanvasContainer()
+ * directly on top of the WebGL canvas, but strictly underneath DOM HTML markers (z-index 2).
+ */
+export function getOrCreateSvgOverlay(map) {
+  if (!map) return null;
+  const container = typeof map.getCanvasContainer === 'function' ? map.getCanvasContainer() : null;
+  if (!container) return null;
+
+  let svg = container.querySelector('.map-route-svg-overlay');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'map-route-svg-overlay');
+    svg.setAttribute('aria-hidden', 'true');
+
+    // Sequence route casing & line (connecting stops in blue)
+    const seqCasing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    seqCasing.setAttribute('class', 'svg-route-seq-casing');
+    const seqLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    seqLine.setAttribute('class', 'svg-route-seq-line');
+
+    // Active route casing & line (from vehicle to current stop in green)
+    const actCasing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    actCasing.setAttribute('class', 'svg-route-act-casing');
+    const actLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    actLine.setAttribute('class', 'svg-route-act-line');
+
+    svg.appendChild(seqCasing);
+    svg.appendChild(seqLine);
+    svg.appendChild(actCasing);
+    svg.appendChild(actLine);
+
+    // Insert directly after canvas so it is below any DOM markers
+    const canvas = typeof map.getCanvas === 'function' ? map.getCanvas() : null;
+    if (canvas && canvas.nextSibling) {
+      container.insertBefore(svg, canvas.nextSibling);
+    } else {
+      container.appendChild(svg);
+    }
+  }
+  return svg;
+}
+
+/**
+ * Projects GeoJSON coordinates into SVG path 'd' attributes with sub-pixel precision.
+ * Runs on every map move, zoom, and render frame at 60fps.
+ */
+export function updateSvgOverlayPaths(map, curStops, curActiveIdx, curRouteCoords, curDriverLoc) {
+  if (!map) return;
+  const svg = getOrCreateSvgOverlay(map);
+  if (!svg) return;
+
+  const seqCasing = svg.querySelector('.svg-route-seq-casing');
+  const seqLine = svg.querySelector('.svg-route-seq-line');
+  const actCasing = svg.querySelector('.svg-route-act-casing');
+  const actLine = svg.querySelector('.svg-route-act-line');
+
+  // 1. Sequence Route: connects manifest stops in sequence (Blue)
+  const validCoords = (curStops || []).map(getStopCoords).filter(Boolean);
+  let seqD = '';
+  if (validCoords.length >= 2) {
+    for (let i = 0; i < validCoords.length; i++) {
+      try {
+        const pt = map.project(validCoords[i]);
+        seqD += (i === 0 ? 'M ' : ' L ') + `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+      } catch (_) {}
+    }
+  }
+  if (seqCasing) seqCasing.setAttribute('d', seqD);
+  if (seqLine) seqLine.setAttribute('d', seqD);
+
+  // 2. Active Target Route Leg: vehicle to current stop (Green)
+  const activeGeo = buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc);
+  const actCoords = activeGeo?.features?.[0]?.geometry?.coordinates || [];
+  let actD = '';
+  if (actCoords.length >= 2) {
+    for (let i = 0; i < actCoords.length; i++) {
+      try {
+        const pt = map.project(actCoords[i]);
+        actD += (i === 0 ? 'M ' : ' L ') + `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+      } catch (_) {}
+    }
+  }
+  if (actCasing) actCasing.setAttribute('d', actD);
+  if (actLine) actLine.setAttribute('d', actD);
 }
 
 // Backward compatibility alias for any existing callers
@@ -676,10 +761,21 @@ export default function MapView({
     map.on('rotatestart', handleUserMapInteraction);
     map.on('pitchstart', handleUserMapInteraction);
 
-    // Keep overlay layers strictly on top whenever raster basemaps refresh or style updates
-    map.on('styledata', () => {
-      ensureOverlaysOnTop(map);
-    });
+    // Synchronize DOM SVG overlay paths on every camera frame at 60fps
+    const handleSyncSvg = () => {
+      updateSvgOverlayPaths(
+        map,
+        stopsRef.current,
+        activeIndexRef.current,
+        activeRouteCoordsRef.current,
+        driverLocationRef.current
+      );
+    };
+
+    map.on('render', handleSyncSvg);
+    map.on('move', handleSyncSvg);
+    map.on('zoom', handleSyncSvg);
+    map.on('resize', handleSyncSvg);
 
     // PRIMARY: load event — fires when style is applied and map canvas is ready.
     // This is the standard reliable hook for addSource/addLayer.
@@ -703,6 +799,10 @@ export default function MapView({
 
     return () => {
       setDebugInfoRef.current = null;
+      map.off('render', handleSyncSvg);
+      map.off('move', handleSyncSvg);
+      map.off('zoom', handleSyncSvg);
+      map.off('resize', handleSyncSvg);
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       if (driverMarkerRef.current) {
@@ -790,7 +890,8 @@ export default function MapView({
         activeSource.setData(activeGeoJSON);
       }
 
-      ensureOverlaysOnTop(map);
+      // Synchronize hardware-accelerated DOM SVG route lines
+      updateSvgOverlayPaths(map, stops, activeIndex, activeRouteCoordinates, driverLocation);
 
       const seqCoordsCount = seqGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
       const actCoordsCount = activeGeoJSON.features?.[0]?.geometry?.coordinates?.length || 0;
@@ -1108,7 +1209,7 @@ export default function MapView({
         )}
 
         {/* Always-visible live diagnostic HUD */}
-        <div className="map-debug-hud-pill">
+        <div className={`map-debug-hud-pill ${isNavigating ? 'map-debug-hud-navigating' : ''}`}>
           <span>{debugInfo}</span>
         </div>
 
@@ -1131,13 +1232,20 @@ export default function MapView({
 
         {/* Floating Current Street Pill (Image 3 Mockup) - suppressed when expanded sheet is open */}
         {isNavigating && !selectedStop && !showExpandedStopCard && (() => {
-          const street = guidance?.currentInstruction?.streetNames?.[0]
-            || (stops && stops[activeIndex]?.address?.street)
-            || (stops && stops[activeIndex]?.address?.raw)
-            || '';
+          const currentManeuverStreet = guidance?.currentInstruction?.streetNames?.[0] || '';
+          const activeStopStreet = stops && stops[activeIndex]?.address?.street || '';
+          const activeStopRaw = stops && stops[activeIndex]?.address?.raw || '';
+          const street = currentManeuverStreet || activeStopStreet || activeStopRaw;
           if (!street) return null;
+
+          const chipIsShowing = !chipDismissed && stops && stops[activeIndex];
+          // If the bottom stop chip already displays destination address, do not duplicate it with an overlapping pill
+          if (chipIsShowing && !currentManeuverStreet) {
+            return null;
+          }
+
           return (
-            <div className="floating-street-pill-container">
+            <div className={`floating-street-pill-container ${chipIsShowing ? 'floating-street-pill-above-chip' : ''}`}>
               <div className="floating-street-pill">
                 <span>{street}</span>
               </div>
