@@ -38,10 +38,7 @@ const regionsStaticPath = path.join(__dirname, 'public/regions');
 app.use('/regions', express.static(regionsStaticPath));
 app.use(`${baseUri}/regions`, express.static(regionsStaticPath));
 
-// Serve frontend static build from public_html if present
 const publicHtmlPath = path.join(__dirname, '../public_html');
-app.use(`${baseUri}`, express.static(publicHtmlPath));
-app.use(express.static(publicHtmlPath));
 
 // Dedicated APK Download Endpoint
 const GITHUB_RELEASE_APK_URL = 'https://github.com/ejerenwaavis/ACED-Route/releases/download/latest-apk/acedroute.apk';
@@ -64,6 +61,10 @@ app.get(downloadEndpoints, (req, res) => {
   }
   return res.redirect(302, GITHUB_RELEASE_APK_URL);
 });
+
+// Serve frontend static build from public_html if present
+app.use(`${baseUri}`, express.static(publicHtmlPath));
+app.use(express.static(publicHtmlPath));
 
 // SPA fallback for client-side routing
 app.get('*', (req, res, next) => {

@@ -17,6 +17,8 @@ import { api } from '../services/api';
 import { routingService } from '../services/routing';
 import { Capacitor } from '@capacitor/core';
 import NativeHandoffModal from '../components/NativeHandoffModal';
+import { useNavigationGuidance } from '../hooks/useNavigationGuidance';
+import { t, getLanguage, translateManeuver } from '../utils/i18n';
 
 export default function NavigationPage({ manifest, stops: initialStops, onRouteComplete }) {
   const [stops, setStops] = useState(initialStops || []);
@@ -31,6 +33,9 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
   const [routeFinished, setRouteFinished] = useState(false);
   const [activeRouteCoords, setActiveRouteCoords] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentRouteResult, setCurrentRouteResult] = useState(null);
 
   const activeStop = stops[currentIndex] || null;
   const activeAddr = activeStop?.address || {};
@@ -79,8 +84,12 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       const targetLatLng = [targetCoords[1], targetCoords[0]];
 
       let originLatLng = null;
-      if (driverLocation && driverLocation.length >= 2) {
-        originLatLng = [driverLocation[1], driverLocation[0]];
+      if (driverLocation) {
+        if (Array.isArray(driverLocation) && driverLocation.length >= 2) {
+          originLatLng = [driverLocation[1], driverLocation[0]];
+        } else if (driverLocation.latitude != null && driverLocation.longitude != null) {
+          originLatLng = [driverLocation.latitude, driverLocation.longitude];
+        }
       } else if (currentIndex > 0) {
         const prev = stops[currentIndex - 1];
         const prevCoords = prev.address?.location?.coordinates || prev.coordinates;
@@ -96,11 +105,13 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       try {
         const routeResult = await routingService.calculateRoute(originLatLng, targetLatLng);
         if (!isCancelled && routeResult && routeResult.coordinates && routeResult.coordinates.length) {
+          setCurrentRouteResult(routeResult);
           setActiveRouteCoords(routeResult.coordinates);
         }
       } catch (err) {
         // Fall back gracefully if offline bundle not yet downloaded on current device
         if (!isCancelled) {
+          setCurrentRouteResult(null);
           setActiveRouteCoords(null);
         }
       }
@@ -112,8 +123,69 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
     };
   }, [currentIndex, activeStop, driverLocation]);
 
-  // Turn-by-Turn Navigation Launch
-  const handleLaunchNavigation = () => {
+  // Off-route rerouting handler
+  const handleRerouteNeeded = async (newStartCoords) => {
+    if (!activeStop) return;
+    const targetCoords = activeAddr.location?.coordinates || activeStop.coordinates;
+    if (!targetCoords || targetCoords.length < 2) return;
+    const targetLatLng = [targetCoords[1], targetCoords[0]];
+
+    try {
+      const routeResult = await routingService.calculateRoute(newStartCoords, targetLatLng);
+      if (routeResult && routeResult.coordinates && routeResult.coordinates.length) {
+        setCurrentRouteResult(routeResult);
+        setActiveRouteCoords(routeResult.coordinates);
+      }
+    } catch (err) {
+      console.warn('Reroute calculation failed:', err);
+    }
+  };
+
+  // Turn-by-turn guidance engine
+  const guidance = useNavigationGuidance({
+    route: currentRouteResult,
+    currentLocation: driverLocation
+      ? (Array.isArray(driverLocation)
+          ? { longitude: driverLocation[0], latitude: driverLocation[1], bearing: 0, speed: 0 }
+          : driverLocation)
+      : null,
+    onRerouteNeeded: handleRerouteNeeded,
+    isMuted,
+    language: getLanguage(),
+  });
+
+  // Attach native foreground tracking listener when isNavigating is active
+  useEffect(() => {
+    if (!isNavigating) return;
+
+    let sub = null;
+    try {
+      sub = routingService.addLocationListener((loc) => {
+        if (loc && loc.latitude != null && loc.longitude != null) {
+          setDriverLocation(loc);
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to attach location listener:', e);
+    }
+
+    return () => {
+      if (sub && typeof sub.remove === 'function') {
+        sub.remove();
+      }
+    };
+  }, [isNavigating]);
+
+  // Clean up foreground service on unmount
+  useEffect(() => {
+    return () => {
+      routingService.stopNavigationTracking();
+      routingService.stopSpeech();
+    };
+  }, []);
+
+  // In-App Turn-by-Turn Navigation Launch
+  const handleLaunchNavigation = async () => {
     if (!activeStop) return;
 
     // Intercept web browser: native app is required for turn-by-turn navigation
@@ -122,11 +194,23 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
       return;
     }
 
+    setIsNavigating(true);
+    await routingService.startNavigationTracking();
+  };
+
+  const handleExitNavigation = async () => {
+    setIsNavigating(false);
+    await routingService.stopNavigationTracking();
+    await routingService.stopSpeech();
+  };
+
+  // External Maps fallback
+  const handleLaunchExternalMaps = () => {
+    if (!activeStop) return;
     const coords = activeAddr.location?.coordinates || [-73.9851, 40.7488];
     const [lng, lat] = coords;
     const street = activeAddr.street || activeAddr.raw || '';
 
-    // Android Google Maps navigation intent
     const googleNavUri = `google.navigation:q=${lat},${lng}&mode=d`;
     const webMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
       lat && lng ? `${lat},${lng}` : street
@@ -372,15 +456,26 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
             </div>
           )}
 
-          {/* Turn-by-Turn Launch Button */}
+          {/* In-App Turn-by-Turn Launch Button */}
           <button
             className="btn btn-primary btn-block btn-lg"
             onClick={handleLaunchNavigation}
             style={{ marginTop: '1.25rem', gap: '0.75rem' }}
           >
             <Navigation size={22} />
-            <span>Navigate to Stop #{currentIndex + 1}</span>
+            <span>{isNavigating ? 'Resume In-App Navigation' : `Start Navigation to Stop #${currentIndex + 1}`}</span>
           </button>
+
+          {/* External Navigation Link Option */}
+          <div style={{ textAlign: 'center', marginTop: '0.4rem', marginBottom: '0.5rem' }}>
+            <button
+              onClick={handleLaunchExternalMaps}
+              style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <ExternalLink size={12} />
+              <span>Open in Google Maps</span>
+            </button>
+          </div>
 
           {/* Action Buttons: Delivered / Skip */}
           <div className="nav-hero-buttons">
@@ -396,7 +491,7 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
         </div>
       ) : null}
 
-      {/* Interactive Map view */}
+      {/* Interactive Map view with Phase 4 Turn-by-Turn Guidance */}
       <MapView
         stops={stops}
         activeIndex={currentIndex}
@@ -405,6 +500,9 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
         onSelectStop={(idx) => setCurrentIndex(idx)}
         onNavigateHere={(idx) => setCurrentIndex(idx)}
         onNavigateInSequence={() => advanceToNextPending(stops)}
+        guidance={guidance ? { ...guidance, isMuted, onToggleMute: () => setIsMuted(m => !m), language: getLanguage() } : null}
+        isNavigating={isNavigating}
+        onExitNavigation={handleExitNavigation}
       />
 
       {/* Stop Sequence Cards */}

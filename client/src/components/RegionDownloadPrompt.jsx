@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DownloadCloud, Wifi, WifiOff, AlertTriangle, CheckCircle, Map, Compass, Smartphone } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { routingService } from '../services/routing';
 import NativeHandoffModal from './NativeHandoffModal';
+import { t } from '../utils/i18n';
 
 export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }) {
   const [downloading, setDownloading] = useState(false);
@@ -10,12 +11,20 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
   const [progressStage, setProgressStage] = useState('');
   const [error, setError] = useState(null);
   const [showNativeHandoff, setShowNativeHandoff] = useState(false);
+  const [isWifi, setIsWifi] = useState(true);
 
   const isNative = Capacitor.isNativePlatform();
-  const isWifi = routingService.isWifiConnection();
   const sizeMB = region.combinedSizeMB || (
     ((region.routing?.sizeMB || 0) + (region.basemap?.sizeMB || 0)).toFixed(1)
   );
+
+  useEffect(() => {
+    let isMounted = true;
+    routingService.isWifiConnection().then((res) => {
+      if (isMounted) setIsWifi(res);
+    });
+    return () => { isMounted = false; };
+  }, []);
 
   const handleStartDownload = async () => {
     // Intercept web browser: native device storage is required for offline tiles
@@ -27,20 +36,20 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
     setDownloading(true);
     setError(null);
     setProgress(10);
-    setProgressStage('Initializing download connection...');
+    setProgressStage(t('downloadingTiles'));
 
     try {
       setProgress(30);
-      setProgressStage('Downloading Valhalla routing tile bundle...');
+      setProgressStage(t('downloadingTiles'));
 
       await new Promise(r => setTimeout(r, 400));
       setProgress(60);
-      setProgressStage('Downloading PMTiles visual basemap archive...');
+      setProgressStage(t('downloadingBasemap'));
 
       await routingService.downloadRegion(region);
 
       setProgress(100);
-      setProgressStage('Extraction complete. Offline map ready!');
+      setProgressStage(t('extractionComplete'));
       setTimeout(() => {
         if (onDownloaded) onDownloaded(region);
       }, 600);
@@ -51,6 +60,8 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
     }
   };
 
+  const regionName = region.displayName || region.name || region.id || 'Current Region';
+
   return (
     <>
       <div className="modal-overlay">
@@ -58,28 +69,28 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
           <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
             <div
               style={{
-                width: '56px',
-                height: '56px',
+                width: '54px',
+                height: '54px',
                 borderRadius: '50%',
                 background: 'rgba(56, 189, 248, 0.15)',
-                display: 'inline-flex',
+                display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#38bdf8',
-                marginBottom: '0.75rem'
+                margin: '0 auto 0.75rem',
+                color: '#38bdf8'
               }}
             >
               <Map size={28} />
             </div>
-            <h3 className="card-title" style={{ fontSize: '1.25rem', justifyContent: 'center' }}>
-              Offline Map Required
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.35rem' }}>
+              {t('offlineMapRequired')}
             </h3>
-            <p style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '0.5rem' }}>
-              Offline map for <strong>{region.name || region.id}</strong> required (
-              <span style={{ color: '#38bdf8', fontWeight: 600 }}>{sizeMB} MB</span> — routing + visual map). Download now?
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.4 }}>
+              {t('offlineMapDesc', { region: regionName, size: sizeMB })}
             </p>
           </div>
 
+          {/* Network Badge */}
           {!isNative ? (
             <div
               style={{
@@ -117,9 +128,7 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
             >
               {isWifi ? <Wifi size={16} /> : <WifiOff size={16} />}
               <span>
-                {isWifi
-                  ? 'Connected via Wi-Fi (Recommended)'
-                  : 'Cellular connection detected. Wi-Fi is recommended to conserve mobile data.'}
+                {isWifi ? t('wifiConnected') : t('cellularDetected')}
               </span>
             </div>
           )}
@@ -170,7 +179,7 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
               disabled={downloading}
               onClick={onDismiss}
             >
-              Later
+              {t('later')}
             </button>
             <button
               className="btn btn-primary"
@@ -180,7 +189,7 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
             >
               {isNative ? <DownloadCloud size={18} /> : <Smartphone size={18} />}
               <span>
-                {downloading ? 'Downloading...' : (isNative ? 'Download Now' : 'Download via App')}
+                {downloading ? 'Downloading...' : (isNative ? t('downloadNow') : 'Download via App')}
               </span>
             </button>
           </div>
@@ -190,7 +199,7 @@ export default function RegionDownloadPrompt({ region, onDownloaded, onDismiss }
       <NativeHandoffModal
         isOpen={showNativeHandoff}
         onClose={() => setShowNativeHandoff(false)}
-        message={`Offline maps for ${region.name || region.id} (${sizeMB} MB) run locally on device storage. To download offline tiles and start turn-by-turn navigation, open or download the ACED Route mobile app.`}
+        message={`Offline maps for ${regionName} (${sizeMB} MB) run locally on device storage. To download offline tiles and start turn-by-turn navigation, open or download the ACED Route mobile app.`}
       />
     </>
   );

@@ -1,5 +1,10 @@
 package com.aceddivisionllc.routing;
 
+import android.content.Intent;
+import android.location.Location;
+import android.os.Build;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.Voice;
 import android.util.Log;
 
 import com.getcapacitor.JSArray;
@@ -15,10 +20,12 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
- * AcedRoutingPlugin exposes native Valhalla offline routing and PMTiles basemap
- * management to the Capacitor webview.
+ * AcedRoutingPlugin exposes native Valhalla offline routing, PMTiles basemap
+ * management, foreground GPS tracking, and neural voice guidance to the Capacitor webview.
  *
  * Input coordinates: [latitude, longitude]
  * Output coordinates: [longitude, latitude] (GeoJSON / MapLibre GL convention)
@@ -27,13 +34,67 @@ import java.util.List;
 public class AcedRoutingPlugin extends Plugin {
     private static final String TAG = "AcedRoutingPlugin";
     private ValhallaEngine valhallaEngine;
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
 
     @Override
     public void load() {
         super.load();
         valhallaEngine = new ValhallaEngine(getContext());
+        initTts();
         Log.i(TAG, "AcedRoutingPlugin initialized with tiles directory: " + 
               valhallaEngine.getTilesDir("default").getParent());
+    }
+
+    private void initTts() {
+        try {
+            tts = new TextToSpeech(getContext(), status -> {
+                if (status == TextToSpeech.SUCCESS) {
+                    ttsReady = true;
+                    selectBestVoice(Locale.US);
+                    Log.i(TAG, "TextToSpeech initialized successfully");
+                } else {
+                    Log.w(TAG, "TextToSpeech init returned status: " + status);
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to initialize TextToSpeech", e);
+        }
+    }
+
+    private void selectBestVoice(Locale locale) {
+        if (tts == null || !ttsReady) return;
+        try {
+            tts.setLanguage(locale);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                Set<Voice> voices = tts.getVoices();
+                if (voices != null) {
+                    Voice bestVoice = null;
+                    for (Voice v : voices) {
+                        if (v.getLocale() != null && v.getLocale().getLanguage().equalsIgnoreCase(locale.getLanguage())) {
+                            String vName = v.getName().toLowerCase();
+                            // Prioritize Google Speech Services neural/high quality voice variants
+                            if (v.getQuality() == Voice.QUALITY_VERY_HIGH ||
+                                vName.contains("-x-") ||
+                                vName.contains("neural") ||
+                                vName.contains("network")) {
+                                bestVoice = v;
+                                break;
+                            }
+                            if (bestVoice == null) {
+                                bestVoice = v;
+                            }
+                        }
+                    }
+                    if (bestVoice != null) {
+                        tts.setVoice(bestVoice);
+                        Log.i(TAG, "Selected TTS voice: " + bestVoice.getName());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error selecting TTS voice", e);
+        }
     }
 
     @PluginMethod
@@ -182,5 +243,100 @@ public class AcedRoutingPlugin extends Plugin {
                 call.reject("Route calculation failed: " + e.getMessage());
             }
         });
+    }
+
+    @PluginMethod
+    public void startNavigationTracking(PluginCall call) {
+        try {
+            NavigationForegroundService.setLocationCallback(location -> {
+                JSObject data = new JSObject();
+                data.put("latitude", location.getLatitude());
+                data.put("longitude", location.getLongitude());
+                data.put("accuracy", location.getAccuracy());
+                data.put("altitude", location.getAltitude());
+                data.put("bearing", location.hasBearing() ? (double) location.getBearing() : 0.0);
+                data.put("speed", location.hasSpeed() ? (double) location.getSpeed() : 0.0);
+                data.put("time", location.getTime());
+                notifyListeners("locationUpdate", data);
+            });
+
+            Intent serviceIntent = new Intent(getContext(), NavigationForegroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                getContext().startForegroundService(serviceIntent);
+            } else {
+                getContext().startService(serviceIntent);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start navigation tracking", e);
+            call.reject("Failed to start navigation tracking: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopNavigationTracking(PluginCall call) {
+        try {
+            NavigationForegroundService.setLocationCallback(null);
+            Intent serviceIntent = new Intent(getContext(), NavigationForegroundService.class);
+            getContext().stopService(serviceIntent);
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to stop navigation tracking", e);
+            call.reject("Failed to stop navigation tracking: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void speak(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null || text.trim().isEmpty()) {
+            call.resolve();
+            return;
+        }
+
+        String lang = call.getString("language", "en");
+        Locale locale = lang.toLowerCase().startsWith("es") ? new Locale("es", "US") : Locale.US;
+
+        if (tts != null && ttsReady) {
+            try {
+                selectBestVoice(locale);
+                float rate = (float) call.getDouble("rate", 1.0);
+                float pitch = (float) call.getDouble("pitch", 1.0);
+                tts.setSpeechRate(rate);
+                tts.setPitch(pitch);
+
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aced_nav_" + System.currentTimeMillis());
+                call.resolve();
+            } catch (Exception e) {
+                Log.e(TAG, "TTS speak failed", e);
+                call.reject("TTS speak failed: " + e.getMessage());
+            }
+        } else {
+            // If TTS is not yet ready or failed, resolve gracefully so navigation is not blocked
+            Log.w(TAG, "TTS not ready when requested: " + text);
+            call.resolve();
+        }
+    }
+
+    @PluginMethod
+    public void stopSpeech(PluginCall call) {
+        if (tts != null) {
+            try {
+                tts.stop();
+            } catch (Exception ignored) {}
+        }
+        call.resolve();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        super.handleOnDestroy();
+        if (tts != null) {
+            try {
+                tts.stop();
+                tts.shutdown();
+            } catch (Exception ignored) {}
+        }
+        NavigationForegroundService.setLocationCallback(null);
     }
 }

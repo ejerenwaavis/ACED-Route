@@ -1,3 +1,4 @@
+import type { PluginListenerHandle } from '@capacitor/core';
 /**
  * ACED Route — Offline Valhalla Routing Capacitor Plugin Definitions
  *
@@ -124,6 +125,21 @@ export interface CalculateRouteResult {
      */
     instructions: StepInstruction[];
 }
+export interface NavigationLocation {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    altitude?: number;
+    bearing: number;
+    speed: number;
+    time: number;
+}
+export interface SpeakOptions {
+    text: string;
+    language?: string;
+    rate?: number;
+    pitch?: number;
+}
 export interface AcedRoutingPlugin {
     /**
      * Checks whether a pre-built offline tile bundle is installed for the specified region.
@@ -143,5 +159,29 @@ export interface AcedRoutingPlugin {
      * Returns GeoJSON [lng, lat] coordinate pairs and turn-by-turn guidance steps.
      */
     calculateRoute(options: CalculateRouteOptions): Promise<CalculateRouteResult>;
+    /**
+     * Starts native high-accuracy navigation tracking.
+     * On Android, triggers NavigationForegroundService with ongoing system tray notification.
+     * On iOS, enables background location updates with automotive navigation precision.
+     */
+    startNavigationTracking(): Promise<void>;
+    /**
+     * Stops native foreground tracking and cleans up notification/listeners.
+     */
+    stopNavigationTracking(): Promise<void>;
+    /**
+     * Synthesizes spoken turn-by-turn guidance alerts.
+     * Automatically prioritizes Google Speech Services neural voices on Android
+     * and Enhanced/Premium Siri voices on iOS.
+     */
+    speak(options: SpeakOptions): Promise<void>;
+    /**
+     * Immediately silences any active spoken guidance prompt.
+     */
+    stopSpeech(): Promise<void>;
+    /**
+     * Subscribes to real-time navigation GPS location updates.
+     */
+    addListener(eventName: 'locationUpdate', listenerFunc: (location: NavigationLocation) => void): Promise<PluginListenerHandle>;
 }
 //# sourceMappingURL=definitions.d.ts.map

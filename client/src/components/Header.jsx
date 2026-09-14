@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
-import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe } from 'lucide-react';
 import { getUser, removeToken, getApiBase, setApiBase } from '../services/api';
 import OfflineMapsModal from './OfflineMapsModal';
+import { getLanguage, setLanguage, onLanguageChange, t } from '../utils/i18n';
 
 export default function Header({ user, onAuthChange, onOpenLogin }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
   const [customApi, setCustomApi] = useState(getApiBase());
+  const [lang, setLangState] = useState(getLanguage());
+
+  useEffect(() => {
+    return onLanguageChange((newLang) => setLangState(newLang));
+  }, []);
+
+  const handleToggleLang = () => {
+    const next = lang === 'en' ? 'es' : 'en';
+    setLanguage(next);
+  };
 
   const handleSaveApi = () => {
     setApiBase(customApi.trim());
@@ -35,11 +46,21 @@ export default function Header({ user, onAuthChange, onOpenLogin }) {
         <div className="header-actions">
           <button
             className="btn btn-secondary btn-sm"
+            onClick={handleToggleLang}
+            title={lang === 'en' ? 'Cambiar a Español' : 'Switch to English'}
+            style={{ fontWeight: 600, fontSize: '0.75rem', padding: '0.35rem 0.6rem' }}
+          >
+            <Globe size={13} />
+            <span>{lang.toUpperCase()}</span>
+          </button>
+
+          <button
+            className="btn btn-secondary btn-sm"
             onClick={() => setShowOfflineMaps(true)}
             title="Offline Map Regions"
           >
             <Map size={14} />
-            <span style={{ fontSize: '0.75rem' }}>Maps</span>
+            <span style={{ fontSize: '0.75rem' }}>{t('offlineMaps').split(' ')[0]}</span>
           </button>
 
           <button

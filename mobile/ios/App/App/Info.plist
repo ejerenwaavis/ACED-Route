@@ -66,5 +66,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>audio</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ACED Route uses your location to provide real-time turn-by-turn navigation and voice guidance.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ACED Route uses your location in the background to ensure turn-by-turn voice prompts continue smoothly when the screen is locked.</string>
 </dict>
 </plist>

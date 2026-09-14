@@ -43,6 +43,12 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
+        <!-- Navigation Foreground Service for persistent GPS tracking & turn-by-turn guidance -->
+        <service
+            android:name="com.aceddivisionllc.routing.NavigationForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
         <!-- Filled from gradle.properties -> manifestPlaceholders, never hardcode the key here.
              See mobile/README.md for the two-line build.gradle wiring. -->
         <meta-data
@@ -53,9 +59,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- "While in use" only — matches the privacy policy and avoids the
-         heavier Play Store background-location review entirely, per the
-         plan: app stays foregrounded during active navigation. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

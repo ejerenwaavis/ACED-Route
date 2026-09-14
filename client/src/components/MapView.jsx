@@ -22,6 +22,7 @@ import {
 import { registerPMTilesProtocol, resolvePmtilesUrl } from '../utils/pmtilesProtocol';
 import { buildMapStyle } from '../utils/mapStyle';
 import { routingService } from '../services/routing';
+import NavigationGuidanceBanner from './NavigationGuidanceBanner';
 
 /**
  * Generate a high-DPI Retina stop pin icon into an in-memory canvas.
@@ -95,7 +96,10 @@ export default function MapView({
   onSelectStop,
   onNavigateHere,
   onNavigateInSequence,
-  regionId = null
+  regionId = null,
+  guidance = null,
+  isNavigating = false,
+  onExitNavigation = null,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -111,6 +115,34 @@ export default function MapView({
   const [mapTheme, setMapTheme] = useState('street');
   const [nativePmtilesPath, setNativePmtilesPath] = useState(null);
   const [offlineMode, setOfflineMode] = useState(false);
+
+  // Auto-engage fullscreen when navigation begins
+  useEffect(() => {
+    if (isNavigating) {
+      setIsFullscreen(true);
+    }
+  }, [isNavigating]);
+
+  // 3D Perspective Bearing-Following Camera during Active Navigation
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !isNavigating || !driverLocation) return;
+
+    const lng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
+    const lat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
+    const bearing = (!Array.isArray(driverLocation) && driverLocation?.bearing != null) ? driverLocation.bearing : 0;
+
+    if (lng != null && lat != null && !isNaN(lng) && !isNaN(lat)) {
+      map.easeTo({
+        center: [lng, lat],
+        bearing: bearing,
+        pitch: 55,
+        zoom: 17,
+        duration: 800,
+        essential: true,
+      });
+    }
+  }, [driverLocation, isNavigating, mapLoaded]);
 
   const activeRegion = regionId || routingService.getActiveRegion() || 'sample-metro';
 
@@ -446,7 +478,10 @@ export default function MapView({
     const driverSource = map.getSource('driver-location-source');
     if (!driverSource) return;
 
-    if (driverLocation && driverLocation.length >= 2) {
+    const dlLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
+    const dlLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
+
+    if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
       driverSource.setData({
         type: 'FeatureCollection',
         features: [
@@ -454,7 +489,7 @@ export default function MapView({
             type: 'Feature',
             geometry: {
               type: 'Point',
-              coordinates: [driverLocation[0], driverLocation[1]]
+              coordinates: [dlLng, dlLat]
             }
           }
         ]
@@ -498,8 +533,10 @@ export default function MapView({
 
         if (targetCoords) {
           let originCoords = null;
-          if (driverLocation && driverLocation.length >= 2) {
-            originCoords = [driverLocation[0], driverLocation[1]];
+          const driverLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
+          const driverLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
+          if (driverLng != null && driverLat != null) {
+            originCoords = [driverLng, driverLat];
           } else if (activeIndex > 0) {
             originCoords = getStopCoords(stops[activeIndex - 1]);
           } else if (stops.length > 1) {
@@ -617,16 +654,38 @@ export default function MapView({
       <div className={`maplibre-wrapper ${isFullscreen ? 'maplibre-fullscreen' : ''}`}>
         <div ref={mapContainerRef} className="maplibre-canvas-container" />
 
+        {/* Top Status Bar Notch Scrim (ensures white battery/clock text is always crisp over map) */}
+        {isFullscreen && <div className="map-notch-scrim" />}
+
+        {/* Turn-by-Turn Guidance Banner */}
+        {isNavigating && guidance && (
+          <NavigationGuidanceBanner
+            currentInstruction={guidance.currentInstruction}
+            nextInstruction={guidance.nextInstruction}
+            distanceToManeuver={guidance.distanceToManeuver}
+            isRecalculating={guidance.isRecalculating}
+            isMuted={guidance.isMuted}
+            onToggleMute={guidance.onToggleMute}
+            language={guidance.language}
+          />
+        )}
+
         {/* Fullscreen Back Bar (Safe Area Top) */}
         {isFullscreen && (
           <div className="map-fullscreen-header-bar">
             <button
-              onClick={() => setIsFullscreen(false)}
+              onClick={() => {
+                if (isNavigating && onExitNavigation) {
+                  onExitNavigation();
+                } else {
+                  setIsFullscreen(false);
+                }
+              }}
               className="map-back-btn"
-              title="Exit Full View"
+              title={isNavigating ? 'Exit Navigation' : 'Exit Full View'}
             >
               <ChevronLeft size={18} />
-              <span>Back</span>
+              <span>{isNavigating ? 'Exit Nav' : 'Back'}</span>
             </button>
             <div className="map-legend-pill">
               <ShieldCheck size={13} />

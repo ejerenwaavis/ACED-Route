@@ -1,13 +1,15 @@
 /**
- * MapLibre GL vector style provider for ACED Route.
- * Uses OpenFreeMap vector basemaps (100% free, zero API keys, zero watermarks) when online,
- * and offline PMTiles vector layers when offline.
+ * MapLibre GL style provider for ACED Route.
+ * Provides high-definition, un-watermarked basemaps:
+ * - Street view: ESRI World Street Map (crisp roads, highway links, street labels, 100% reliable)
+ * - Night view: ESRI World Dark Gray Canvas
+ * - Offline view: Local PMTiles vector layers
  *
  * @param {object} options
  * @param {string|null} options.pmtilesUrl - Resolved URL to the local or remote .pmtiles archive
  * @param {boolean} options.isOffline - Whether Airplane Mode / offline mode is active
- * @param {'street'|'dark'} options.theme - Visual style ('street' for high-contrast day navigation, 'dark' for night)
- * @returns {string|object} Valid MapLibre Style Specification v8 object or URL
+ * @param {'street'|'dark'} options.theme - Visual style ('street' for day navigation, 'dark' for night)
+ * @returns {object} Valid MapLibre Style Specification v8 object
  */
 export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 'street' } = {}) {
   // If offline mode is enabled and PMTiles URL is available, use local vector tiles
@@ -15,13 +17,72 @@ export function buildMapStyle({ pmtilesUrl = null, isOffline = false, theme = 's
     return buildOfflineDarkStyle(pmtilesUrl);
   }
 
-  // OpenFreeMap styles: 100% free vector tiles, zero watermarks, crisp roads and highway links
+  // Night Mode: ESRI World Dark Gray Canvas
   if (theme === 'dark') {
-    return 'https://tiles.openfreemap.org/styles/dark';
+    return {
+      version: 8,
+      name: 'ACED Route Night Dark',
+      sources: {
+        'esri-dark-base': {
+          type: 'raster',
+          tiles: [
+            'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+          ],
+          tileSize: 256,
+          attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors'
+        },
+        'esri-dark-ref': {
+          type: 'raster',
+          tiles: [
+            'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
+          ],
+          tileSize: 256,
+          attribution: ''
+        }
+      },
+      layers: [
+        {
+          id: 'esri-dark-base-layer',
+          type: 'raster',
+          source: 'esri-dark-base',
+          minzoom: 0,
+          maxzoom: 20
+        },
+        {
+          id: 'esri-dark-ref-layer',
+          type: 'raster',
+          source: 'esri-dark-ref',
+          minzoom: 0,
+          maxzoom: 20
+        }
+      ]
+    };
   }
 
-  // Default: OpenFreeMap Liberty (clean daytime street navigation with distinct highway colors and street labels)
-  return 'https://tiles.openfreemap.org/styles/liberty';
+  // Street Mode: ESRI World Street Map (crisp daylight navigation, all roads & highway links)
+  return {
+    version: 8,
+    name: 'ACED Route World Street',
+    sources: {
+      'esri-street': {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+        ],
+        tileSize: 256,
+        attribution: '© Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, METI, TomTom'
+      }
+    },
+    layers: [
+      {
+        id: 'esri-street-layer',
+        type: 'raster',
+        source: 'esri-street',
+        minzoom: 0,
+        maxzoom: 20
+      }
+    ]
+  };
 }
 
 /**

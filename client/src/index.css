@@ -705,3 +705,15 @@ body {
     transform: translateY(0);
   }
 }
+
+/* Top Status Bar Notch Scrim (ensures white battery/clock text is always crisp over map) */
+.map-notch-scrim {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: max(56px, calc(env(safe-area-inset-top) + 24px));
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.45) 60%, rgba(15, 23, 42, 0) 100%);
+  pointer-events: none;
+  z-index: 25;
+}
