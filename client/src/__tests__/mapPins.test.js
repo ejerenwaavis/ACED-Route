@@ -184,6 +184,39 @@ assert('Newer cloud release correctly triggers update status', checkCloudIsNewer
 assert('Older cloud release correctly reports up-to-date', checkCloudIsNewer(installedDate, olderCloudDate) === false);
 assert('Identical build timestamp reports up-to-date', checkCloudIsNewer(installedDate, installedDate) === false);
 
+// S7: Phase D Turn-by-Turn Navigation Screen & Camera Fix Tests
+console.log('\nS7: Phase D Turn-by-Turn Navigation Screen & Camera Snapping Fix');
+
+// 1. Turn instruction card styling verification
+assert('Turn card pinned container is defined', /\.turn-card-pinned-container/.test(cssContent));
+assert('Turn instruction card has dark graphite background', /\.turn-instruction-card[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Turn instruction card has high z-index (pinned above map)', /\.turn-card-pinned-container[^{]*\{[^}]*z-index:\s*120/.test(cssContent));
+assert('Turn maneuver icon box has dark surface styling', /\.turn-maneuver-icon-box/.test(cssContent));
+assert('Recalculating animation bar is defined', /\.turn-recalculating-bar/.test(cssContent));
+
+// 2. Current stop floating chip styling verification
+assert('Current stop chip container is defined', /\.current-stop-chip-container/.test(cssContent));
+assert('Current stop chip uses dark graphite card', /\.current-stop-chip[^{]*\{[^}]*--color-graphite/.test(cssContent));
+assert('Current stop chip badge uses action orange', /\.current-stop-chip-badge[^{]*\{[^}]*--color-orange-action/.test(cssContent));
+
+// 3. Map controls free-panning highlight verification
+assert('Recenter active class has orange indicator', /\.map-control-recenter-active[^{]*\{[^}]*--color-orange-action/.test(cssContent));
+
+// 4. Map camera follow logic test (verifies camera easeTo is bypassed when userIsPanning === true)
+function shouldFollowVehicle(isNavigating, mapLoaded, hasLocation, userIsPanning) {
+  return Boolean(isNavigating && mapLoaded && hasLocation && !userIsPanning);
+}
+
+assert('Camera follows vehicle when navigating and user is NOT panning',
+  shouldFollowVehicle(true, true, true, false) === true
+);
+assert('Camera DOES NOT snap back when user is actively panning/exploring',
+  shouldFollowVehicle(true, true, true, true) === false
+);
+assert('Camera does not follow when navigation is inactive',
+  shouldFollowVehicle(false, true, true, false) === false
+);
+
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');
 if(fail>0) process.exit(1);

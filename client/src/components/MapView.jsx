@@ -27,6 +27,10 @@ import { registerPMTilesProtocol, resolvePmtilesUrl } from '../utils/pmtilesProt
 import { buildMapStyle } from '../utils/mapStyle';
 import { routingService } from '../services/routing';
 import NavigationGuidanceBanner from './NavigationGuidanceBanner';
+import TurnInstructionCard from './navigation/TurnInstructionCard';
+import CurrentStopChip from './navigation/CurrentStopChip';
+import MapFloatingControls from './navigation/MapFloatingControls';
+import NextStopCard from './navigation/NextStopCard';
 import { useLanguage } from '../utils/i18n';
 import { haversineDistance } from '../utils/geoUtils';
 
@@ -295,6 +299,12 @@ export default function MapView({
   // Debug HUD — shows live layer-setup status on device screen
   const [debugInfo, setDebugInfo] = useState('waiting…');
 
+  // User free-panning / interaction guard so camera does not snap back
+  const [userIsPanning, setUserIsPanning] = useState(false);
+  const userIsPanningRef = useRef(false);
+  const hasInitialFitRef = useRef(false);
+  const [showExpandedStopCard, setShowExpandedStopCard] = useState(false);
+  const [chipDismissed, setChipDismissed] = useState(false);
 
   // Auto-engage fullscreen when navigation begins
   useEffect(() => {
@@ -304,9 +314,10 @@ export default function MapView({
   }, [isNavigating]);
 
   // 3D Perspective Bearing-Following Camera during Active Navigation
+  // Only follows if the user is NOT actively panning/exploring the map
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded || !isNavigating || !driverLocation) return;
+    if (!map || !mapLoaded || !isNavigating || !driverLocation || userIsPanning) return;
 
     const lng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
     const lat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
@@ -322,7 +333,7 @@ export default function MapView({
         essential: true,
       });
     }
-  }, [driverLocation, isNavigating, mapLoaded]);
+  }, [driverLocation, isNavigating, mapLoaded, userIsPanning]);
 
   const activeRegion = regionId || routingService.getActiveRegion() || 'sample-metro';
 
@@ -579,6 +590,15 @@ export default function MapView({
       console.warn('[MapLibre error event]:', e?.error?.message || e);
     });
 
+    // Detect user manual interaction so we do NOT forcibly snap the camera back
+    const handleUserMapInteraction = () => {
+      setUserIsPanning(true);
+      userIsPanningRef.current = true;
+    };
+    map.on('dragstart', handleUserMapInteraction);
+    map.on('rotatestart', handleUserMapInteraction);
+    map.on('pitchstart', handleUserMapInteraction);
+
     // PRIMARY: load event — fires when style is applied and map canvas is ready.
     // This is the standard reliable hook for addSource/addLayer.
     map.on('load', () => {
@@ -784,8 +804,7 @@ export default function MapView({
     }
   }, [driverLocation, mapLoaded]);
 
-  // 7. Camera Auto-framing
-
+  // 7. Camera Auto-framing (Fixed: never depends on driverLocation to avoid unwanted snap-backs)
   const fitMapToBounds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -795,9 +814,10 @@ export default function MapView({
 
     const bounds = new LngLatBounds();
     validCoords.forEach((c) => bounds.extend(c));
-    if (driverLocation) {
-      const dlLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
-      const dlLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
+    const curDriverLoc = driverLocationRef.current;
+    if (curDriverLoc) {
+      const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
+      const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
       if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
         bounds.extend([dlLng, dlLat]);
       }
@@ -808,21 +828,46 @@ export default function MapView({
       maxZoom: 16,
       duration: 800
     });
-  }, [stops, driverLocation]);
+  }, [stops]);
 
-  // Initial fit
+  // Initial fit: runs ONCE when stops first load
   useEffect(() => {
-    if (mapLoaded && stops.length > 0) {
+    if (mapLoaded && stops.length > 0 && !hasInitialFitRef.current) {
+      hasInitialFitRef.current = true;
       fitMapToBounds();
     }
   }, [mapLoaded, stops.length, fitMapToBounds]);
 
-  const handleCenterActiveStop = () => {
+  // Explicit Recenter Button Handler
+  const handleRecenter = () => {
+    setUserIsPanning(false);
+    userIsPanningRef.current = false;
+    setChipDismissed(false);
+
     const map = mapRef.current;
+    if (!map) return;
+
+    const curDriverLoc = driverLocationRef.current;
+    if (isNavigating && curDriverLoc) {
+      const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
+      const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
+      const bearing = (!Array.isArray(curDriverLoc) && curDriverLoc?.bearing != null) ? curDriverLoc.bearing : 0;
+      if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+        map.flyTo({
+          center: [dlLng, dlLat],
+          bearing: bearing,
+          pitch: 55,
+          zoom: 17,
+          essential: true
+        });
+        return;
+      }
+    }
+
     const target = stops[activeIndex];
     const coords = getStopCoords(target);
-    if (map && coords) {
-      map.flyTo({ center: coords, zoom: 15.5, essential: true });
+    if (coords) {
+      map.flyTo({ center: coords, zoom: 16, pitch: 0, bearing: 0, essential: true });
       setSelectedStop(target);
       setSelectedStopIndex(activeIndex);
     }
@@ -888,29 +933,16 @@ export default function MapView({
       <div className={`maplibre-wrapper ${isFullscreen ? 'maplibre-fullscreen' : ''}`}>
         <div ref={mapContainerRef} className="maplibre-canvas-container" />
 
-        {/* DEBUG HUD — shows layer setup status on device screen */}
-        <div style={{
-          position: 'absolute', bottom: 48, left: 8, zIndex: 9000,
-          background: 'rgba(0,0,0,0.75)', color: '#4ade80',
-          fontSize: 10, fontFamily: 'monospace', padding: '3px 6px',
-          borderRadius: 4, maxWidth: '85%', wordBreak: 'break-all',
-          pointerEvents: 'none'
-        }}>
-          {debugInfo}
-        </div>
-
         {/* Top Status Bar Notch Scrim (ensures white battery/clock text is always crisp over map) */}
         {isFullscreen && <div className="map-notch-scrim" />}
 
-        {/* Turn-by-Turn Guidance Banner */}
+        {/* Turn-by-Turn Guidance Banner (Phase D) */}
         {isNavigating && guidance && (
-          <NavigationGuidanceBanner
+          <TurnInstructionCard
             currentInstruction={guidance.currentInstruction}
             nextInstruction={guidance.nextInstruction}
             distanceToManeuver={guidance.distanceToManeuver}
             isRecalculating={guidance.isRecalculating}
-            isMuted={guidance.isMuted}
-            onToggleMute={guidance.onToggleMute}
             language={guidance.language}
           />
         )}
@@ -962,179 +994,94 @@ export default function MapView({
           </div>
         )}
 
-        {/* Unified Custom Map Controls (Notch Safe) */}
-        <div className="maplibre-controls-overlay">
-          <button
-            className="map-control-btn"
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            title={isFullscreen ? t('exitFullView') : t('fullView')}
-          >
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
-          <button
-            className="map-control-btn"
-            onClick={handleToggleTheme}
-            title={mapTheme === 'street' ? t('nightMode') : t('vectorStreet')}
-          >
-            {mapTheme === 'street' ? <Moon size={16} /> : <Sun size={16} />}
-          </button>
-          <button
-            className="map-control-btn"
-            onClick={fitMapToBounds}
-            title="Fit All Stops in View"
-          >
-            <Compass size={16} />
-          </button>
-          <button
-            className="map-control-btn"
-            onClick={handleCenterActiveStop}
-            title="Recenter to Active Stop"
-          >
-            <Crosshair size={16} />
-          </button>
-          <button
-            className="map-control-btn"
-            onClick={handleZoomIn}
-            title="Zoom In"
-          >
-            <Plus size={16} />
-          </button>
-          <button
-            className="map-control-btn"
-            onClick={handleZoomOut}
-            title="Zoom Out"
-          >
-            <Minus size={16} />
-          </button>
-        </div>
+        {/* Modular Floating Map Controls (Notch Safe) */}
+        <MapFloatingControls
+          isNavigating={isNavigating}
+          isFullscreen={isFullscreen}
+          userIsPanning={userIsPanning}
+          isMuted={guidance?.isMuted || false}
+          mapTheme={mapTheme}
+          onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+          onToggleTheme={handleToggleTheme}
+          onRecenter={handleRecenter}
+          onFitBounds={fitMapToBounds}
+          onToggleMute={guidance?.onToggleMute}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          t={t}
+        />
 
-        {/* Floating Bottom Sheet for Selected Stop or Active Stop in Fullscreen (Phase C) */}
+        {/* Active Navigation Floating Bottom Chip or Full Sheet (Phase D) */}
         {(() => {
           const activeStop = stops && stops[activeIndex] ? stops[activeIndex] : null;
-          const displayStop = selectedStop || (isFullscreen ? activeStop : null);
+          const showSheet = selectedStop || showExpandedStopCard || (isFullscreen && !isNavigating);
+          const displayStop = selectedStop || (showSheet ? activeStop : null);
           const displayStopIndex = selectedStop ? selectedStopIndex : activeIndex;
           const isDisplayNextStop = displayStopIndex === activeIndex;
 
-          if (!displayStop) return null;
-
-          // Distance and ETA to displayStop
-          let sheetDistanceStr = null;
-          let sheetEtaStr = null;
-          const targetCoords = getStopCoords(displayStop);
-          if (targetCoords) {
-            const dlLng = Array.isArray(driverLocation) ? driverLocation[0] : driverLocation?.longitude;
-            const dlLat = Array.isArray(driverLocation) ? driverLocation[1] : driverLocation?.latitude;
-            if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
-              const distMeters = haversineDistance(dlLat, dlLng, targetCoords[1], targetCoords[0]);
-              const miles = distMeters * 0.000621371;
-              sheetDistanceStr = `${miles.toFixed(1)} mi`;
-              sheetEtaStr = `${Math.max(1, Math.round(miles * 2.5))} min`;
+          // Distance and ETA calculations for the active/inspected stop
+          const calcStop = displayStop || activeStop;
+          let distanceStr = null;
+          let etaStr = null;
+          if (calcStop) {
+            const targetCoords = getStopCoords(calcStop);
+            if (targetCoords) {
+              const curDriverLoc = driverLocationRef.current;
+              const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
+              const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
+              if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+                const distMeters = haversineDistance(dlLat, dlLng, targetCoords[1], targetCoords[0]);
+                const miles = distMeters * 0.000621371;
+                distanceStr = `${miles.toFixed(1)} mi`;
+                etaStr = `${Math.max(1, Math.round(miles * 2.5))} min`;
+              }
             }
           }
 
-          return (
-            <div className="map-bottom-sheet">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                <span className="next-stop-pill">
-                  {isDisplayNextStop ? (displayStopIndex === 0 ? 'START ROUTE' : 'NEXT STOP') : `STOP ${displayStopIndex + 1}`}
-                </span>
-                {selectedStop && (
-                  <button
-                    onClick={() => {
-                      setSelectedStop(null);
-                      setSelectedStopIndex(null);
-                    }}
-                    style={{ background: 'none', border: 'none', color: 'var(--color-gray, #8A8F96)', cursor: 'pointer', padding: '0.25rem' }}
-                  >
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
+          // Case A: User opened full stop card or clicked a marker
+          if (showSheet && displayStop) {
+            return (
+              <NextStopCard
+                stop={displayStop}
+                stopIndex={displayStopIndex}
+                totalStops={stops.length}
+                isNavigating={isNavigating}
+                distanceStr={distanceStr}
+                etaStr={etaStr}
+                isFloating={true}
+                onNavigate={() => {
+                  if (onNavigateHere) onNavigateHere(displayStopIndex);
+                  setSelectedStop(null);
+                  setSelectedStopIndex(null);
+                  setShowExpandedStopCard(false);
+                }}
+                onMarkDelivered={isDisplayNextStop ? onMarkDelivered : null}
+                onSkipStop={isDisplayNextStop ? onSkipStop : null}
+                onClose={() => {
+                  setSelectedStop(null);
+                  setSelectedStopIndex(null);
+                  setShowExpandedStopCard(false);
+                }}
+                t={t}
+              />
+            );
+          }
 
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.8rem', marginBottom: '0.75rem' }}>
-                <div className="next-stop-number-badge">
-                  {displayStopIndex + 1}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FFFFFF', lineHeight: 1.25 }}>
-                    {displayStop.recipient || displayStop.address?.recipient || displayStop.address?.street || displayStop.address?.raw || t('stopDetails')}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--color-gray, #8A8F96)', marginTop: '2px' }}>
-                    {[displayStop.address?.city, displayStop.address?.state, displayStop.address?.postalCode].filter(Boolean).join(', ')}
-                  </div>
-                </div>
-              </div>
+          // Case B: In active navigation, show minimal non-obstructive bottom chip
+          if (isNavigating && activeStop && !chipDismissed) {
+            return (
+              <CurrentStopChip
+                stop={activeStop}
+                stopIndex={activeIndex}
+                distanceStr={distanceStr}
+                etaStr={etaStr}
+                onDismiss={() => setChipDismissed(true)}
+                onExpand={() => setShowExpandedStopCard(true)}
+              />
+            );
+          }
 
-              {/* Distance & ETA + Tags */}
-              <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.75rem', color: 'var(--color-gray, #8A8F96)', marginBottom: '0.85rem' }}>
-                {sheetDistanceStr && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#FFFFFF', fontWeight: 600 }}>
-                    <Navigation size={13} color="var(--color-blue-nav, #2676D9)" />
-                    <span>{sheetDistanceStr}</span>
-                    {sheetEtaStr && <span style={{ color: 'var(--color-gray, #8A8F96)', fontWeight: 400 }}>• {sheetEtaStr}</span>}
-                  </div>
-                )}
-
-                {displayStop.trackingNumber && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <Tag size={12} />
-                    <span>{t('package')}: {displayStop.trackingNumber}</span>
-                  </div>
-                )}
-
-                {displayStop.address?.gateCode && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#fbbf24', fontWeight: 600 }}>
-                    <Key size={12} />
-                    <span>Gate: #{displayStop.address.gateCode}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Full-width Navigate Action Button */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <button
-                  className="btn-navigate-action"
-                  onClick={() => {
-                    if (onNavigateHere) onNavigateHere(displayStopIndex);
-                    setSelectedStop(null);
-                  }}
-                >
-                  <Navigation size={17} />
-                  <span>
-                    {displayStopIndex === activeIndex
-                      ? (isNavigating ? t('resumeNavigation') : t('startNavigationToStop', { number: displayStopIndex + 1 }))
-                      : t('navigateHere')}
-                  </span>
-                </button>
-
-                {/* In-sequence delivery actions if viewing next stop */}
-                {isDisplayNextStop && (onMarkDelivered || onSkipStop) && (
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
-                    {onMarkDelivered && (
-                      <button
-                        className="btn btn-success btn-sm"
-                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.55rem', borderRadius: '10px' }}
-                        onClick={onMarkDelivered}
-                      >
-                        <CheckCircle2 size={15} />
-                        <span>{t('delivered')}</span>
-                      </button>
-                    )}
-                    {onSkipStop && (
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.55rem', borderRadius: '10px' }}
-                        onClick={onSkipStop}
-                      >
-                        <AlertTriangle size={15} color="#f59e0b" />
-                        <span>{t('skipAttempt')}</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
+          return null;
         })()}
       </div>
     </div>

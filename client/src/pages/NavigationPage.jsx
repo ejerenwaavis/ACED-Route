@@ -19,6 +19,7 @@ import { api } from '../services/api';
 import { routingService } from '../services/routing';
 import { Capacitor } from '@capacitor/core';
 import NativeHandoffModal from '../components/NativeHandoffModal';
+import NextStopCard from '../components/navigation/NextStopCard';
 import { useNavigationGuidance } from '../hooks/useNavigationGuidance';
 import { useLanguage, getLanguage, translateManeuver } from '../utils/i18n';
 import { haversineDistance } from '../utils/geoUtils';
@@ -454,111 +455,22 @@ export default function NavigationPage({ manifest, stops: initialStops, onRouteC
         }
 
         return (
-          <div className="nav-hero">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <span className="next-stop-pill">
-                {currentIndex === 0 ? 'START ROUTE' : 'NEXT STOP'}
-              </span>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-gray, #8A8F96)' }}>
-                {t('stopOf', { current: currentIndex + 1, total: stops.length })}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem', marginBottom: '0.85rem' }}>
-              <div className="next-stop-number-badge">
-                {currentIndex + 1}
-              </div>
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="nav-hero-address">
-                  {activeStop.recipient || activeAddr.recipient || activeAddr.street || activeAddr.raw || 'Pending Address'}
-                </div>
-                <div style={{ color: 'var(--color-gray, #8A8F96)', fontSize: '0.85rem', lineHeight: '1.3' }}>
-                  {[activeAddr.city, activeAddr.state, activeAddr.postalCode].filter(Boolean).join(', ')}
-                </div>
-              </div>
-            </div>
-
-            {/* Distance & ETA + Tracking Meta */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap', marginBottom: '0.75rem', fontSize: '0.8rem', color: 'var(--color-gray, #8A8F96)' }}>
-              {legDistanceStr && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#FFFFFF', fontWeight: 600 }}>
-                  <Navigation size={13} color="var(--color-blue-nav, #2676D9)" />
-                  <span>{legDistanceStr}</span>
-                  {legEtaStr && <span style={{ color: 'var(--color-gray, #8A8F96)', fontWeight: 400 }}>• {legEtaStr}</span>}
-                </div>
-              )}
-
-              {activeStop.trackingNumber && (
-                <div className="nav-hero-tracking">
-                  {t('package')}: <strong>{activeStop.trackingNumber}</strong>
-                </div>
-              )}
-
-              {brandName && (
-                <span className="nav-hero-brand">
-                  <Tag size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                  {brandName}
-                </span>
-              )}
-            </div>
-
-            {/* Gate code pill & Edit button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-              {activeAddr.gateCode ? (
-                <div className="gate-code-pill">
-                  <Key size={14} /> {t('gate')}: #{activeAddr.gateCode}
-                </div>
-              ) : null}
-
-              <button
-                className="btn btn-secondary btn-sm"
-                style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', borderRadius: '8px' }}
-                onClick={() => setShowGateModal(true)}
-              >
-                <Edit3 size={12} /> {activeAddr.gateCode ? t('editGateNotes') : t('addGateCode')}
-              </button>
-            </div>
-
-            {activeAddr.notes && (
-              <div style={{ marginBottom: '1rem', fontSize: '0.8rem', color: '#cbd5e1', fontStyle: 'italic', background: 'rgba(0, 0, 0, 0.25)', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
-                {t('note')}: {activeAddr.notes}
-              </div>
-            )}
-
-            {/* In-App Turn-by-Turn Launch Button (Full-width Action Orange) */}
-            <button
-              className="btn-navigate-action"
-              onClick={handleLaunchNavigation}
-              style={{ marginBottom: '0.75rem' }}
-            >
-              <Navigation size={19} />
-              <span>{isNavigating ? t('resumeNavigation') : t('startNavigationToStop', { number: currentIndex + 1 })}</span>
-            </button>
-
-            {/* External Navigation Link Option */}
-            <div style={{ textAlign: 'center', marginTop: '0.2rem', marginBottom: '0.5rem' }}>
-              <button
-                onClick={handleLaunchExternalMaps}
-                style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-              >
-                <ExternalLink size={12} />
-                <span>{t('openGoogleMaps')}</span>
-              </button>
-            </div>
-
-            {/* Action Buttons: Delivered / Skip */}
-            <div className="nav-hero-buttons">
-              <button className="btn btn-success btn-lg" onClick={handleMarkDelivered}>
-                <CheckCircle2 size={18} />
-                <span>{t('delivered')}</span>
-              </button>
-              <button className="btn btn-secondary btn-lg" onClick={handleSkipStop}>
-                <AlertTriangle size={18} color="#f59e0b" />
-                <span>{t('skipAttempt')}</span>
-              </button>
-            </div>
-          </div>
+          <NextStopCard
+            stop={activeStop}
+            stopIndex={currentIndex}
+            totalStops={stops.length}
+            isNavigating={isNavigating}
+            distanceStr={legDistanceStr}
+            etaStr={legEtaStr}
+            brandName={brandName}
+            onNavigate={handleLaunchNavigation}
+            onMarkDelivered={handleMarkDelivered}
+            onSkipStop={handleSkipStop}
+            onEditGate={() => setShowGateModal(true)}
+            onLaunchExternalMaps={handleLaunchExternalMaps}
+            isFloating={false}
+            t={t}
+          />
         );
       })() : null}
 

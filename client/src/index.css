@@ -937,3 +937,241 @@ body {
   pointer-events: none;
   z-index: 25;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Phase D: Turn-by-Turn Active Navigation Screen (Dark Chrome Design System)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Pinned Top Turn Instruction Card */
+.turn-card-pinned-container {
+  position: absolute;
+  top: max(16px, calc(env(safe-area-inset-top) + 12px));
+  left: 16px;
+  right: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  z-index: 120;
+  pointer-events: none;
+}
+
+.turn-instruction-card {
+  pointer-events: auto;
+  background: var(--color-graphite, #17191C);
+  border: 1px solid var(--border, #2E3238);
+  border-radius: 18px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+  animation: slideDown 0.25s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.turn-recalculating-bar {
+  background: var(--color-orange-action, #F28C28);
+  color: #000000;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.turn-instruction-body {
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.turn-maneuver-icon-box {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: rgba(38, 118, 217, 0.15);
+  border: 1px solid rgba(38, 118, 217, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #FFFFFF;
+}
+
+.turn-instruction-text-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.turn-distance-label {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.turn-street-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #D1D5DB;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-subsequent-strip {
+  background: rgba(0, 0, 0, 0.35);
+  border-top: 1px solid #2E3238;
+  padding: 0.45rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.turn-subsequent-label {
+  color: var(--color-gray, #8A8F96);
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.turn-subsequent-text {
+  color: #E2E8F0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bottom Small Floating Current Stop Chip */
+.current-stop-chip-container {
+  position: absolute;
+  bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+  left: 16px;
+  right: 16px;
+  max-width: 440px;
+  margin: 0 auto;
+  z-index: 110;
+  pointer-events: none;
+}
+
+.current-stop-chip {
+  pointer-events: auto;
+  background: var(--color-graphite, #17191C);
+  border: 1px solid var(--border, #2E3238);
+  border-radius: 16px;
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.current-stop-chip:hover {
+  border-color: var(--color-orange-action, #F28C28);
+}
+
+.current-stop-chip-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-orange-action, #F28C28);
+  color: #FFFFFF;
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(242, 140, 40, 0.3);
+}
+
+.current-stop-chip-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.current-stop-chip-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current-stop-chip-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-gray, #8A8F96);
+  margin-top: 2px;
+}
+
+.current-stop-chip-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #D1D5DB;
+  font-weight: 500;
+}
+
+.current-stop-chip-gate {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.current-stop-chip-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.current-stop-chip-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 8px;
+  color: var(--color-gray, #8A8F96);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.current-stop-chip-btn:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Highlighted Recenter Button state when free-panning */
+.map-control-recenter-active {
+  border-color: var(--color-orange-action, #F28C28) !important;
+  color: var(--color-orange-action, #F28C28) !important;
+  background: rgba(242, 140, 40, 0.15) !important;
+}
+
+.map-control-muted {
+  border-color: rgba(229, 72, 77, 0.4) !important;
+  background: rgba(229, 72, 77, 0.15) !important;
+}
