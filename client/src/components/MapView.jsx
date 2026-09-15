@@ -83,6 +83,39 @@ function buildStopsGeoJSON(stopsList, activeIdx, selectedIdx) {
 }
 
 /**
+ * Interpolates an array of [lng, lat] coords so there is a point at least every `spacingMeters`.
+ * Essential for making MultiPoint circle layers look like continuous solid lines.
+ */
+function interpolateRouteCoordinates(coords, spacingMeters = 8) {
+  if (!coords || coords.length < 2) return coords;
+  const result = [coords[0]];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p1 = coords[i];
+    const p2 = coords[i + 1];
+    
+    // Simple equirectangular distance approximation (fast enough for small segments)
+    const R = 6371000;
+    const dLat = (p2[1] - p1[1]) * Math.PI / 180;
+    const dLng = (p2[0] - p1[0]) * Math.PI / 180;
+    const a = Math.cos(p1[1] * Math.PI / 180);
+    const dist = Math.sqrt(dLat*dLat + dLng*dLng * a*a) * R;
+    
+    if (dist > spacingMeters) {
+      const steps = Math.floor(dist / spacingMeters);
+      for (let s = 1; s <= steps; s++) {
+        const frac = s / (steps + 1);
+        result.push([
+          p1[0] + (p2[0] - p1[0]) * frac,
+          p1[1] + (p2[1] - p1[1]) * frac
+        ]);
+      }
+    }
+    result.push(p2);
+  }
+  return result;
+}
+
+/**
  * Builds standard GeoJSON FeatureCollection LineString connecting all manifest stops in sequence.
  * STRICT: Returns empty features when isRoadSnapped === false (no straight stick lines).
  */
@@ -93,14 +126,15 @@ export function buildSequenceRouteGeoJSON(stopsList, sequenceCoords = null, isRo
   if (sequenceCoords && sequenceCoords.length >= 2) {
     const sanitizedCoords = sequenceCoords.filter(pt => pt && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1]));
     if (sanitizedCoords.length >= 2) {
+      const denseCoords = interpolateRouteCoordinates(sanitizedCoords, 8);
       return {
         type: 'FeatureCollection',
         features: [
           {
             type: 'Feature',
             geometry: {
-              type: 'LineString',
-              coordinates: sanitizedCoords
+              type: 'MultiPoint',
+              coordinates: denseCoords
             },
             properties: {}
           }
@@ -118,7 +152,7 @@ export function buildSequenceRouteGeoJSON(stopsList, sequenceCoords = null, isRo
       {
         type: 'Feature',
         geometry: {
-          type: 'LineString',
+          type: 'MultiPoint',
           coordinates: validCoords
         },
         properties: {}
@@ -183,6 +217,7 @@ export function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords,
     if (hasDriverLoc && coords.length > 0) {
       coords[0] = [dlLng, dlLat];
     }
+    coords = interpolateRouteCoordinates(coords, 8);
   }
 
   if (coords && coords.length >= 2) {
@@ -192,7 +227,7 @@ export function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords,
         {
           type: 'Feature',
           geometry: {
-            type: 'LineString',
+            type: 'MultiPoint',
             coordinates: coords
           },
           properties: {}
@@ -607,35 +642,34 @@ export default function MapView({
       const validCoordCount = curStops.map(getStopCoords).filter(Boolean).length;
       if (dbg) dbg(`setup… stops:${curStops.length} valid:${validCoordCount}`);
 
-      // A. Sequence Route Line & Approximate Dot-Trail
+      // A. Sequence Route Line -> Converted to dense MultiPoint circle layer to bypass GPU bugs
       try {
         safeAddSource(map, 'sequence-route-source', {
           type: 'geojson',
           data: buildSequenceRouteGeoJSON(curStops, sequenceRouteCoordsRef.current, isSequenceRoadSnappedRef.current)
         });
         safeAddLayer(map, {
-          id: 'sequence-route-casing', type: 'line', source: 'sequence-route-source',
-          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#0f172a', 'line-width': 8 }
+          id: 'sequence-route-casing', type: 'circle', source: 'sequence-route-source',
+          layout: { 'visibility': 'visible' },
+          paint: { 'circle-color': '#0f172a', 'circle-radius': 5, 'circle-pitch-alignment': 'map' }
         });
         safeAddLayer(map, {
-          id: 'sequence-route', type: 'line', source: 'sequence-route-source',
-          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#2676D9', 'line-width': 4 }
+          id: 'sequence-route', type: 'circle', source: 'sequence-route-source',
+          layout: { 'visibility': 'visible' },
+          paint: { 'circle-color': '#2676D9', 'circle-radius': 3, 'circle-pitch-alignment': 'map' }
         });
 
-        // TEST TRIANGLE - To definitively prove if 'line' layers are broken globally in WebGL
+        // TEST TRIANGLE - Also converted to dots to prove points work
         safeAddSource(map, 'test-triangle', {
           type: 'geojson',
           data: {
             type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [[-84.06, 34.09], [-84.07, 34.09], [-84.07, 34.08]] }
+            geometry: { type: 'MultiPoint', coordinates: [[-84.06, 34.09], [-84.065, 34.09], [-84.07, 34.09], [-84.07, 34.085], [-84.07, 34.08]] }
           }
         });
         safeAddLayer(map, {
-          id: 'test-triangle-layer', type: 'line', source: 'test-triangle',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#FF0000', 'line-width': 10 }
+          id: 'test-triangle-layer', type: 'circle', source: 'test-triangle',
+          paint: { 'circle-color': '#FF0000', 'circle-radius': 8, 'circle-pitch-alignment': 'map' }
         });
 
         safeAddSource(map, 'sequence-dots-source', {
@@ -643,36 +677,28 @@ export default function MapView({
           data: buildSequenceDotTrailGeoJSON(curStops, isSequenceRoadSnappedRef.current)
         });
         safeAddLayer(map, {
-          id: 'sequence-route-approximate-dots',
-          type: 'circle',
-          source: 'sequence-dots-source',
-          layout: { 'visibility': 'visible' },
-          paint: {
-            'circle-radius': 4,
-            'circle-color': '#f59e0b',
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#1e293b'
-          }
+          id: 'sequence-route-approximate-dots', type: 'circle', source: 'sequence-dots-source',
+          paint: { 'circle-radius': 4, 'circle-color': '#94a3b8', 'circle-pitch-alignment': 'map' }
         });
       } catch (seqErr) {
-        diagnosticLogger.logRenderError('setup:sequence', seqErr);
+        console.warn('Error setting up sequence layers:', seqErr);
       }
 
-      // B. Active Target Route Leg & Approximate Dot-Trail
+      // B. Active Target Leg Line -> Converted to dense MultiPoint circle layer
       try {
         safeAddSource(map, 'active-route-source', {
           type: 'geojson',
           data: buildActiveRouteGeoJSON(curStops, curActiveIdx, curRouteCoords, curDriverLoc, isActiveRoadSnappedRef.current)
         });
         safeAddLayer(map, {
-          id: 'active-route-casing', type: 'line', source: 'active-route-source',
-          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#064e3b', 'line-width': 10 }
+          id: 'active-route-casing', type: 'circle', source: 'active-route-source',
+          layout: { 'visibility': 'visible' },
+          paint: { 'circle-color': '#064e3b', 'circle-radius': 6, 'circle-pitch-alignment': 'map' }
         });
         safeAddLayer(map, {
-          id: 'active-route', type: 'line', source: 'active-route-source',
-          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#22c55e', 'line-width': 6 }
+          id: 'active-route', type: 'circle', source: 'active-route-source',
+          layout: { 'visibility': 'visible' },
+          paint: { 'circle-color': '#22c55e', 'circle-radius': 4, 'circle-pitch-alignment': 'map' }
         });
 
         const activeTargetStop = curStops && curStops[curActiveIdx];
