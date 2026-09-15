@@ -467,9 +467,15 @@ export default function MapView({
         // 4. DUMP THE LIVE SOURCE
         const seqSrc = map.getSource('sequence-route-source');
         let srcData = 'null';
-        if (seqSrc && seqSrc._data) {
-          const coords = seqSrc._data.features?.[0]?.geometry?.coordinates || [];
-          srcData = `feats:${seqSrc._data.features?.length || 0} coords:${coords.length} first:${JSON.stringify(coords[0])} last:${JSON.stringify(coords[coords.length - 1])}`;
+        if (seqSrc) {
+          try {
+            const serialized = seqSrc.serialize();
+            const dataObj = serialized?.data || {};
+            const coords = dataObj.features?.[0]?.geometry?.coordinates || [];
+            srcData = `feats:${dataObj.features?.length || 0} coords:${coords.length} first:${JSON.stringify(coords[0])} last:${JSON.stringify(coords[coords.length - 1])}`;
+          } catch (e) {
+             srcData = `serialize-error:${e.message}`;
+          }
         }
 
         const report = `[GROUND-TRUTH] Rendered:{seq:${seqRendered}, act:${actRendered}} | Colors:{seq:${seqColor}, act:${actColor}, seqCas:${seqCasingColor}, actCas:${actCasingColor}} | Filters:{seq:${JSON.stringify(seqFilter)}, act:${JSON.stringify(actFilter)}} | SourceData:{${srcData}}`;
@@ -1062,6 +1068,7 @@ export default function MapView({
       if (seqSource) {
         try {
           console.error(`[GEO-CHECK] SEQ -> feats:${seqGeoJSON.features?.length} type:${seqGeoJSON.features?.[0]?.geometry?.type} coords:${seqGeoJSON.features?.[0]?.geometry?.coordinates?.length}`);
+          console.trace(`[TRACE] Calling setData for sequence-route-source`);
           seqSource.setData(seqGeoJSON);
         } catch (seqErr) {
           console.error('[LINE-RENDER] sequence-route-source.setData THREW:', seqErr.message, seqErr.stack);
@@ -1078,6 +1085,7 @@ export default function MapView({
       const seqDotsGeoJSON = buildSequenceDotTrailGeoJSON(stops, isSequenceRoadSnapped);
       const seqDotsSource = map.getSource('sequence-dots-source');
       if (seqDotsSource) {
+        console.trace(`[TRACE] Calling setData for sequence-dots-source`);
         seqDotsSource.setData(seqDotsGeoJSON);
       }
     } catch (seqDotsErr) {
@@ -1092,6 +1100,7 @@ export default function MapView({
       if (activeSource) {
         try {
           console.error(`[GEO-CHECK] ACT -> feats:${activeGeoJSON.features?.length} type:${activeGeoJSON.features?.[0]?.geometry?.type} coords:${activeGeoJSON.features?.[0]?.geometry?.coordinates?.length}`);
+          console.trace(`[TRACE] Calling setData for active-route-source`);
           activeSource.setData(activeGeoJSON);
         } catch (actErr) {
           console.error('[LINE-RENDER] active-route-source.setData THREW:', actErr.message, actErr.stack);
