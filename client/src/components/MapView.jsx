@@ -615,13 +615,27 @@ export default function MapView({
         });
         safeAddLayer(map, {
           id: 'sequence-route-casing', type: 'line', source: 'sequence-route-source',
-          layout: { 'visibility': 'visible' },
+          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
           paint: { 'line-color': '#0f172a', 'line-width': 8 }
         });
         safeAddLayer(map, {
           id: 'sequence-route', type: 'line', source: 'sequence-route-source',
-          layout: { 'visibility': 'visible' },
+          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
           paint: { 'line-color': '#2676D9', 'line-width': 4 }
+        });
+
+        // TEST TRIANGLE - To definitively prove if 'line' layers are broken globally in WebGL
+        safeAddSource(map, 'test-triangle', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[-84.06, 34.09], [-84.07, 34.09], [-84.07, 34.08]] }
+          }
+        });
+        safeAddLayer(map, {
+          id: 'test-triangle-layer', type: 'line', source: 'test-triangle',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#FF0000', 'line-width': 10 }
         });
 
         safeAddSource(map, 'sequence-dots-source', {
@@ -652,12 +666,12 @@ export default function MapView({
         });
         safeAddLayer(map, {
           id: 'active-route-casing', type: 'line', source: 'active-route-source',
-          layout: { 'visibility': 'visible' },
+          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
           paint: { 'line-color': '#064e3b', 'line-width': 10 }
         });
         safeAddLayer(map, {
           id: 'active-route', type: 'line', source: 'active-route-source',
-          layout: { 'visibility': 'visible' },
+          layout: { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' },
           paint: { 'line-color': '#22c55e', 'line-width': 6 }
         });
 
