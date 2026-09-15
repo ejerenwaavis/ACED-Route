@@ -11,6 +11,27 @@ export default function SequencerPage({ manifest, onStartRoute }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
+
+  // Always watch GPS on this screen so the map puck is live and the
+  // "Waiting for GPS…" pill doesn't appear during sequencing.
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setDriverLocation({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          bearing: pos.coords.heading ?? 0,
+          speed: pos.coords.speed ?? 0
+        });
+      },
+      (err) => console.warn('[SequencerPage] GPS watch notice:', err.message),
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
 
   useEffect(() => {
     if (!manifest?._id) return;
@@ -106,7 +127,8 @@ export default function SequencerPage({ manifest, onStartRoute }) {
       </div>
 
       {/* Map visualization */}
-      <MapView stops={stops} activeIndex={0} />
+      <MapView stops={stops} activeIndex={0} driverLocation={driverLocation} />
+
 
       {/* Reorderable Stop List */}
       <div style={{ marginTop: '1rem' }}>

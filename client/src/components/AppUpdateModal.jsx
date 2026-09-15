@@ -120,14 +120,23 @@ export default function AppUpdateModal({ isOpen, onClose }) {
         if (progressTimerRef.current) clearInterval(progressTimerRef.current);
         setProgressPercent(100);
         if (result && result.success) {
+          // Only show 'complete' after confirmed native install success
           setTimeout(() => setStep('complete'), 1200);
+        } else {
+          // installApk returned but without success — likely prompting Android installer
+          // Stay on ready so the user can verify installation and close manually
+          setStep('ready');
+          setProgressPercent(0);
         }
       } else {
-        // Browser testing fallback
+        // Browser/web fallback — open the APK download link.
+        // Do NOT set step='complete': the user hasn't installed anything yet.
+        // They still need to download and side-load the APK manually.
         window.open(releaseInfo.downloadUrl, '_blank');
         if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-        setProgressPercent(100);
-        setTimeout(() => setStep('complete'), 1500);
+        setProgressPercent(0);
+        setStep('ready');
+        setErrorMessage('APK download started. Install via your Downloads folder and relaunch the app.');
       }
     } catch (err) {
       console.error('[AppUpdateModal] Install failed:', err);
@@ -136,6 +145,7 @@ export default function AppUpdateModal({ isOpen, onClose }) {
       setStep('ready');
       window.open(releaseInfo.downloadUrl, '_blank');
     }
+
   };
 
   const handleCancel = () => {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud, ChevronDown, User, Route as RouteIcon, FileText } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Navigation, Settings, LogIn, LogOut, ShieldCheck, Server, Map, Globe, DownloadCloud, ChevronDown, User, Route as RouteIcon, FileText, MoreVertical } from 'lucide-react';
 import { getUser, removeToken, getApiBase, setApiBase } from '../services/api';
 import OfflineMapsModal from './OfflineMapsModal';
 import AppUpdateModal from './AppUpdateModal';
@@ -11,8 +11,10 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
   const [showOfflineMaps, setShowOfflineMaps] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showLogsModal, setShowLogsModal] = useState(false);
+  const [showOverflow, setShowOverflow] = useState(false);
   const [customApi, setCustomApi] = useState(getApiBase());
   const [lang, setLangState] = useState(getLanguage());
+  const overflowRef = useRef(null);
 
   const totalStops = stops?.length || 0;
   const deliveredStops = (stops || []).filter((s) => s.status === 'delivered').length;
@@ -25,9 +27,26 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
     return onLanguageChange((newLang) => setLangState(newLang));
   }, []);
 
+  // Close overflow dropdown when clicking outside
+  useEffect(() => {
+    if (!showOverflow) return;
+    const handleOutside = (e) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target)) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [showOverflow]);
+
   const handleToggleLang = () => {
     const next = lang === 'en' ? 'es' : 'en';
     setLanguage(next);
+    setShowOverflow(false);
   };
 
   const handleSaveApi = () => {
@@ -50,7 +69,7 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
           </div>
           <div>
             <div className="brand-title">ACED Route</div>
-            <div className="brand-subtitle">Driver Delivery & Routing</div>
+            <div className="brand-subtitle">Driver Delivery &amp; Routing</div>
           </div>
         </div>
 
@@ -78,44 +97,90 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
         )}
 
         <div className="header-actions">
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleToggleLang}
-            title={lang === 'en' ? 'Cambiar a Español' : 'Switch to English'}
-            style={{ fontWeight: 600, fontSize: '0.75rem', padding: '0.35rem 0.6rem' }}
-          >
-            <Globe size={13} />
-            <span>{lang.toUpperCase()}</span>
-          </button>
+          {/* ⋮ Overflow menu — collapses secondary actions on mobile */}
+          <div ref={overflowRef} style={{ position: 'relative' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowOverflow((v) => !v)}
+              title="More options"
+              style={{ padding: '0.35rem 0.5rem' }}
+            >
+              <MoreVertical size={16} />
+            </button>
 
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowOfflineMaps(true)}
-            title="Offline Map Regions"
-          >
-            <Map size={14} />
-            <span style={{ fontSize: '0.75rem' }}>{t('offlineMaps').split(' ')[0]}</span>
-          </button>
+            {showOverflow && (
+              <div style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+                background: '#1a1f2b',
+                border: '1px solid #2d3548',
+                borderRadius: '12px',
+                padding: '0.4rem',
+                minWidth: '170px',
+                zIndex: 900,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px'
+              }}>
+                {/* Language toggle */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleToggleLang}
+                  style={{ justifyContent: 'flex-start', gap: '0.6rem', borderRadius: '8px', padding: '0.55rem 0.75rem' }}
+                >
+                  <Globe size={14} />
+                  <span>{lang === 'en' ? 'Español' : 'English'}</span>
+                </button>
 
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowSettings(true)}
-            title="Backend Settings"
-          >
-            <Server size={14} />
-            <span style={{ fontSize: '0.75rem' }}>API</span>
-          </button>
+                {/* Offline maps */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setShowOfflineMaps(true); setShowOverflow(false); }}
+                  style={{ justifyContent: 'flex-start', gap: '0.6rem', borderRadius: '8px', padding: '0.55rem 0.75rem' }}
+                >
+                  <Map size={14} />
+                  <span>Offline Maps</span>
+                </button>
 
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowUpdateModal(true)}
-            title="Check for Software Updates"
-            style={{ fontWeight: 600, fontSize: '0.75rem', padding: '0.35rem 0.6rem', color: 'var(--color-orange-action, #F28C28)' }}
-          >
-            <DownloadCloud size={13} />
-            <span>Update</span>
-          </button>
+                {/* Software update */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setShowUpdateModal(true); setShowOverflow(false); }}
+                  style={{ justifyContent: 'flex-start', gap: '0.6rem', borderRadius: '8px', padding: '0.55rem 0.75rem', color: 'var(--color-orange-action, #F28C28)' }}
+                >
+                  <DownloadCloud size={14} />
+                  <span>Update App</span>
+                </button>
 
+                {/* Backend / API settings */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setShowSettings(true); setShowOverflow(false); }}
+                  style={{ justifyContent: 'flex-start', gap: '0.6rem', borderRadius: '8px', padding: '0.55rem 0.75rem' }}
+                >
+                  <Server size={14} />
+                  <span>API Settings</span>
+                </button>
+
+                {/* Divider */}
+                <div style={{ height: '1px', background: '#2d3548', margin: '0.2rem 0.4rem' }} />
+
+                {/* Diagnostic logs */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setShowLogsModal(true); setShowOverflow(false); }}
+                  style={{ justifyContent: 'flex-start', gap: '0.6rem', borderRadius: '8px', padding: '0.55rem 0.75rem' }}
+                >
+                  <FileText size={14} />
+                  <span>Diagnostic Logs</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Avatar + logout — always visible */}
           {user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <div
@@ -141,6 +206,7 @@ export default function Header({ user, onAuthChange, onOpenLogin, activeManifest
           )}
         </div>
       </header>
+
 
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>

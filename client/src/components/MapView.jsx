@@ -378,6 +378,8 @@ export default function MapView({
   onSelectStopRef.current = onSelectStop;
   const markersRef = useRef([]);
   const driverMarkerRef = useRef(null);
+  // Tracks last DIAG state to suppress repeated identical DIAG log entries
+  const lastDiagStateRef = useRef(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedStop, setSelectedStop] = useState(null);
@@ -930,67 +932,74 @@ export default function MapView({
   }, [driverLocation, mapLoaded, setupLayers]);
 
   // Update Polylines: Sequence Route (Blue) & Active Route (Green) or Approximate Dot-Trails
-  // DIAGNOSTIC VERSION: try/catch REMOVED from setData/addLayer calls — any thrown error will
-  // print explicitly to console.error so it cannot be silently swallowed.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // ── DIAGNOSTIC CHECK 1: Source existence at the moment setData is called ──────────
+    // ── DIAGNOSTIC CHECKS — only log when state meaningfully changes ────────────────
     const seqSrcExists = !!map.getSource('sequence-route-source');
     const actSrcExists = !!map.getSource('active-route-source');
-    const diag1 = `[DIAG-1] src: seq=${seqSrcExists} act=${actSrcExists}`;
-    console.error(diag1);
-    diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-1', status: seqSrcExists && actSrcExists ? 'SUCCESS' : 'WARN', level: seqSrcExists && actSrcExists ? 'info' : 'warn', summary: diag1 });
+    const seqLayerExists = !!map.getLayer('sequence-route');
+    const actLayerExists = !!map.getLayer('active-route');
 
-    // ── DIAGNOSTIC CHECK 2: Full layer stack + line layer positions ──────────────────
+    // Build a compact state key — only emit DIAG logs when this key changes
+    let seqCoordCount = 0;
+    let actCoordCount = 0;
     try {
-      const allLayerIds = map.getStyle().layers.map(l => l.id);
-      const seqIdx = allLayerIds.indexOf('sequence-route');
-      const actIdx = allLayerIds.indexOf('active-route');
-      const diag2 = `[DIAG-2] layers:${allLayerIds.length} seq@${seqIdx} act@${actIdx} → ${allLayerIds.join(',')}`;
-      console.error(diag2);
-      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-2', status: seqIdx >= 0 && actIdx >= 0 ? 'SUCCESS' : 'WARN', level: seqIdx >= 0 && actIdx >= 0 ? 'info' : 'warn', summary: diag2 });
-    } catch (diagErr) {
-      const msg = `[DIAG-2] getStyle threw: ${diagErr.message}`;
-      console.error(msg, diagErr.stack);
-      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-2', status: 'ERR', level: 'error', summary: msg });
-    }
+      const seqGJ = buildSequenceRouteGeoJSON(stops, sequenceRouteCoordinates, isSequenceRoadSnapped);
+      const actGJ = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
+      seqCoordCount = seqGJ.features?.[0]?.geometry?.coordinates?.length || 0;
+      actCoordCount = actGJ.features?.[0]?.geometry?.coordinates?.length || 0;
+    } catch (_) {}
 
-    // ── DIAGNOSTIC CHECK 3: Raw coordinates (first & last) ──────────────────────────
-    try {
-      const seqGeoJSONDiag = buildSequenceRouteGeoJSON(stops, sequenceRouteCoordinates, isSequenceRoadSnapped);
-      const actGeoJSONDiag = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
-      const seqCoords = seqGeoJSONDiag.features?.[0]?.geometry?.coordinates || [];
-      const actCoords = actGeoJSONDiag.features?.[0]?.geometry?.coordinates || [];
-      const diag3 = `[DIAG-3] seq:${seqCoords.length} first:${JSON.stringify(seqCoords[0])} last:${JSON.stringify(seqCoords[seqCoords.length - 1])} | act:${actCoords.length} first:${JSON.stringify(actCoords[0])} last:${JSON.stringify(actCoords[actCoords.length - 1])}`;
+    const diagKey = `${seqSrcExists}|${actSrcExists}|${seqLayerExists}|${actLayerExists}|${seqCoordCount}|${actCoordCount}`;
+    if (diagKey !== lastDiagStateRef.current) {
+      lastDiagStateRef.current = diagKey;
+
+      // DIAG-1: Source existence
+      const diag1 = `[DIAG-1] src: seq=${seqSrcExists} act=${actSrcExists}`;
+      console.error(diag1);
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-1', status: seqSrcExists && actSrcExists ? 'SUCCESS' : 'WARN', level: seqSrcExists && actSrcExists ? 'info' : 'warn', summary: diag1 });
+
+      // DIAG-2: Layer stack
+      try {
+        const allLayerIds = map.getStyle().layers.map(l => l.id);
+        const seqIdx = allLayerIds.indexOf('sequence-route');
+        const actIdx = allLayerIds.indexOf('active-route');
+        const diag2 = `[DIAG-2] layers:${allLayerIds.length} seq@${seqIdx} act@${actIdx} → ${allLayerIds.join(',')}`;
+        console.error(diag2);
+        diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-2', status: seqIdx >= 0 && actIdx >= 0 ? 'SUCCESS' : 'WARN', level: seqIdx >= 0 && actIdx >= 0 ? 'info' : 'warn', summary: diag2 });
+      } catch (diagErr) {
+        const msg = `[DIAG-2] getStyle threw: ${diagErr.message}`;
+        console.error(msg);
+        diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-2', status: 'ERR', level: 'error', summary: msg });
+      }
+
+      // DIAG-3: Coord counts (already computed above)
+      const diag3 = `[DIAG-3] seq:${seqCoordCount} act:${actCoordCount}`;
       console.error(diag3);
-      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-3', status: seqCoords.length > 0 ? 'SUCCESS' : 'WARN', level: seqCoords.length > 0 ? 'info' : 'warn', summary: diag3 });
-    } catch (diagErr) {
-      const msg = `[DIAG-3] buildGeoJSON threw: ${diagErr.message}`;
-      console.error(msg, diagErr.stack);
-      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-3', status: 'ERR', level: 'error', summary: msg });
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-3', status: seqCoordCount > 0 ? 'SUCCESS' : 'WARN', level: seqCoordCount > 0 ? 'info' : 'warn', summary: diag3 });
+
+      // DIAG-4: Paint/visibility
+      try {
+        const seqVis = seqLayerExists ? map.getLayoutProperty('sequence-route', 'visibility') : 'LAYER_MISSING';
+        const seqOpacity = seqLayerExists ? map.getPaintProperty('sequence-route', 'line-opacity') : 'LAYER_MISSING';
+        const seqWidth = seqLayerExists ? map.getPaintProperty('sequence-route', 'line-width') : 'LAYER_MISSING';
+        const actVis = actLayerExists ? map.getLayoutProperty('active-route', 'visibility') : 'LAYER_MISSING';
+        const actOpacity = actLayerExists ? map.getPaintProperty('active-route', 'line-opacity') : 'LAYER_MISSING';
+        const actWidth = actLayerExists ? map.getPaintProperty('active-route', 'line-width') : 'LAYER_MISSING';
+        const diag4 = `[DIAG-4] seq-route: vis=${seqVis} op=${seqOpacity} w=${seqWidth} | act-route: vis=${actVis} op=${actOpacity} w=${actWidth}`;
+        console.error(diag4);
+        const layersOk = seqVis !== 'LAYER_MISSING' && actVis !== 'LAYER_MISSING';
+        diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-4', status: layersOk ? 'SUCCESS' : 'WARN', level: layersOk ? 'info' : 'warn', summary: diag4 });
+      } catch (diagErr) {
+        const msg = `[DIAG-4] getLayoutProperty threw: ${diagErr.message}`;
+        console.error(msg);
+        diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-4', status: 'ERR', level: 'error', summary: msg });
+      }
     }
 
-    // ── DIAGNOSTIC CHECK 4: Paint and visibility state ──────────────────────────────
-    try {
-      const seqVis = map.getLayer('sequence-route') ? map.getLayoutProperty('sequence-route', 'visibility') : 'LAYER_MISSING';
-      const seqOpacity = map.getLayer('sequence-route') ? map.getPaintProperty('sequence-route', 'line-opacity') : 'LAYER_MISSING';
-      const seqWidth = map.getLayer('sequence-route') ? map.getPaintProperty('sequence-route', 'line-width') : 'LAYER_MISSING';
-      const actVis = map.getLayer('active-route') ? map.getLayoutProperty('active-route', 'visibility') : 'LAYER_MISSING';
-      const actOpacity = map.getLayer('active-route') ? map.getPaintProperty('active-route', 'line-opacity') : 'LAYER_MISSING';
-      const actWidth = map.getLayer('active-route') ? map.getPaintProperty('active-route', 'line-width') : 'LAYER_MISSING';
-      const diag4 = `[DIAG-4] seq-route: vis=${seqVis} op=${seqOpacity} w=${seqWidth} | act-route: vis=${actVis} op=${actOpacity} w=${actWidth}`;
-      console.error(diag4);
-      const layersOk = seqVis !== 'LAYER_MISSING' && actVis !== 'LAYER_MISSING';
-      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-4', status: layersOk ? 'SUCCESS' : 'WARN', level: layersOk ? 'info' : 'warn', summary: diag4 });
-    } catch (diagErr) {
-      const msg = `[DIAG-4] getLayoutProperty threw: ${diagErr.message}`;
-      console.error(msg, diagErr.stack);
-      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-4', status: 'ERR', level: 'error', summary: msg });
-    }
-
-    // 1. Sequence Route Line (Road-snapped) — explicit error on throw, no silent swallow
+    // 1. Sequence Route Line (Road-snapped)
     {
       const seqGeoJSON = buildSequenceRouteGeoJSON(stops, sequenceRouteCoordinates, isSequenceRoadSnapped);
       const seqSource = map.getSource('sequence-route-source');
@@ -1019,7 +1028,7 @@ export default function MapView({
       diagnosticLogger.logRenderError('sequence-dots', seqDotsErr);
     }
 
-    // 3. Active Target Leg Line (Road-snapped) — explicit error on throw, no silent swallow
+    // 3. Active Target Leg Line (Road-snapped)
     {
       const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
       const activeSource = map.getSource('active-route-source');
@@ -1050,14 +1059,16 @@ export default function MapView({
       diagnosticLogger.logRenderError('active-dots', actDotsErr);
     }
 
-    // 5. Ensure overlay layers remain above raster basemaps
-    try {
-      ensureOverlaysOnTop(map);
-    } catch (_) {}
+    // 5. Force WebGL redraw — ensures line geometry is flushed to the GPU after setData
+    try { map.triggerRepaint(); } catch (_) {}
 
-    // 6. Update HUD info
+    // 6. Ensure overlay layers remain above raster basemaps
+    try { ensureOverlaysOnTop(map); } catch (_) {}
+
+    // 7. Update HUD info
     updateHudDebugInfo();
   }, [stops, activeIndex, sequenceRouteCoordinates, isSequenceRoadSnapped, activeRouteCoordinates, isActiveRoadSnapped, driverLocation, mapLoaded, setupLayers, updateHudDebugInfo]);
+
 
   // Update HTML Stop Markers (Physically rendered in DOM layer ABOVE WebGL canvas)
   // Protected with outer and inner try/catch blocks; updates debug HUD immediately
