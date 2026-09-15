@@ -563,7 +563,7 @@ export default function MapView({
         safeAddLayer(map, {
           id: 'sequence-route', type: 'line', source: 'sequence-route-source',
           layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#2676D9', 'line-width': 4.5, 'line-opacity': 0.95 }
+          paint: { 'line-color': '#2676D9', 'line-width': 4, 'line-opacity': 0.95 }
         });
 
         safeAddSource(map, 'sequence-dots-source', {
@@ -575,10 +575,10 @@ export default function MapView({
           type: 'circle',
           source: 'sequence-dots-source',
           paint: {
-            'circle-radius': 4.0,
+            'circle-radius': 4,
             'circle-color': '#f59e0b',
             'circle-opacity': 0.95,
-            'circle-stroke-width': 1.2,
+            'circle-stroke-width': 1,
             'circle-stroke-color': '#1e293b'
           }
         });
@@ -595,12 +595,12 @@ export default function MapView({
         safeAddLayer(map, {
           id: 'active-route-casing', type: 'line', source: 'active-route-source',
           layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#064e3b', 'line-width': 11, 'line-opacity': 0.8 }
+          paint: { 'line-color': '#064e3b', 'line-width': 10, 'line-opacity': 0.8 }
         });
         safeAddLayer(map, {
           id: 'active-route', type: 'line', source: 'active-route-source',
           layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#22c55e', 'line-width': 6.5, 'line-opacity': 1.0 }
+          paint: { 'line-color': '#22c55e', 'line-width': 6, 'line-opacity': 1.0 }
         });
 
         const activeTargetStop = curStops && curStops[curActiveIdx];
