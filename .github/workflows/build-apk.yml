@@ -6,6 +6,7 @@ on:
     paths:
       - 'mobile/**'
       - 'client/**'
+      - 'server/**'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
@@ -19,6 +20,19 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Full history needed for commit-count build number
+
+      - name: Generate Build Number
+        id: build_num
+        run: |
+          # Build number = YYYYMMDD.HHMM.short-sha  (e.g. 20260915.0741.900fb7b)
+          BUILD_DATE=$(date -u +"%Y%m%d")
+          BUILD_TIME=$(date -u +"%H%M")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BUILD_NUMBER="${BUILD_DATE}.${BUILD_TIME}.${SHORT_SHA}"
+          echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "Build number: ${BUILD_NUMBER}"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
@@ -52,7 +66,7 @@ jobs:
             base64 -w 0 mobile/android/app/acedroute.keystore > mobile/android/app/acedroute.jks.base64
             echo "::notice title=Generated Keystore::$(cat mobile/android/app/acedroute.jks.base64)"
           fi
-          echo "=== KESTORE CERTIFICATE FINGERPRINTS ==="
+          echo "=== KEYSTORE CERTIFICATE FINGERPRINTS ==="
           keytool -list -v -keystore mobile/android/app/acedroute.keystore -alias acedroute -storepass acedroute123 | grep -E "SHA1|SHA256"
 
       - name: Set up Android SDK
@@ -95,6 +109,16 @@ jobs:
           mkdir -p mobile/plugins/aced-routing/android
           cp mobile/android/gradle.properties mobile/plugins/aced-routing/android/gradle.properties
 
+      - name: Stamp Build Number into APK manifest
+        run: |
+          BUILD_NUMBER="${{ steps.build_num.outputs.BUILD_NUMBER }}"
+          GRADLE_FILE="mobile/android/app/build.gradle"
+          # Increment versionCode by commit count; embed build number in versionName
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          sed -i "s/versionCode .*/versionCode ${COMMIT_COUNT}/" "$GRADLE_FILE" || true
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${BUILD_NUMBER}\"/" "$GRADLE_FILE" || true
+          echo "Stamped: versionCode=${COMMIT_COUNT} versionName=${BUILD_NUMBER}"
+
       - name: Grant Execute Permission for Gradle Wrapper
         run: chmod +x mobile/android/gradlew
 
@@ -117,14 +141,20 @@ jobs:
           fi
           echo "::error title=Gradle Root Cause::$ERR_MSG"
 
-      - name: Prepare Named APK
+      - name: Prepare Named APK (with build number)
         run: |
-          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/app/build/outputs/apk/debug/acedroute.apk
+          BUILD_NUMBER="${{ steps.build_num.outputs.BUILD_NUMBER }}"
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk \
+             mobile/android/app/build/outputs/apk/debug/acedroute.apk
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk \
+             mobile/android/app/build/outputs/apk/debug/acedroute-${BUILD_NUMBER}.apk
+          echo "APK files prepared:"
+          ls -lh mobile/android/app/build/outputs/apk/debug/
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aced-route-debug-apk
+          name: aced-route-debug-apk-${{ steps.build_num.outputs.BUILD_NUMBER }}
           path: mobile/android/app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
@@ -133,8 +163,13 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/pin-fix'
         with:
           tag_name: latest-apk
-          name: "ACED Route Mobile App (Latest Debug APK)"
-          body: "Automated cloud build of the ACED Route offline navigation Android app."
+          name: "ACED Route Mobile App — Build ${{ steps.build_num.outputs.BUILD_NUMBER }}"
+          body: |
+            **Build:** `${{ steps.build_num.outputs.BUILD_NUMBER }}`
+            **Branch:** `${{ github.ref_name }}`
+            **Commit:** `${{ github.sha }}`
+
+            Automated cloud build of the ACED Route offline navigation Android app.
           prerelease: false
           draft: false
           files: |
@@ -149,9 +184,10 @@ jobs:
           SSH_HOST: ${{ secrets.NAMECHEAP_HOST || secrets.SSH_HOST || '198.54.115.163' }}
           SSH_USER: ${{ secrets.NAMECHEAP_USER || secrets.SSH_USER || 'acedzagz' }}
           SSH_PORT: ${{ secrets.NAMECHEAP_PORT || secrets.SSH_PORT || '21098' }}
+          BUILD_NUMBER: ${{ steps.build_num.outputs.BUILD_NUMBER }}
         run: |
           if [ -z "$SSH_KEY" ]; then
-            echo "::warning ::SSH_PRIVATE_KEY or NAMECHEAP_SSH_KEY secret not found in GitHub repository settings. Skipping SCP upload."
+            echo "::warning ::SSH_PRIVATE_KEY or NAMECHEAP_SSH_KEY secret not found. Skipping SCP upload."
             exit 0
           fi
 
@@ -160,6 +196,48 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
 
           echo "Deploying APK to $SSH_USER@$SSH_HOST:$SSH_PORT..."
-          ssh -p $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST "mkdir -p /home/acedzagz/acedroute/public_html/download"
-          scp -P $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa mobile/android/app/build/outputs/apk/debug/app-debug.apk $SSH_USER@$SSH_HOST:/home/acedzagz/acedroute/public_html/download/acedroute.apk
+          ssh -p $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST \
+            "mkdir -p /home/acedzagz/acedroute/public_html/download"
+          scp -P $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+            mobile/android/app/build/outputs/apk/debug/app-debug.apk \
+            $SSH_USER@$SSH_HOST:/home/acedzagz/acedroute/public_html/download/acedroute.apk
           echo "APK successfully published to https://route.aceddivision.com/download/acedroute.apk"
+          echo "Build number: ${BUILD_NUMBER}"
+
+      - name: Deploy Server Changes to Namecheap (if server/ changed)
+        env:
+          SSH_KEY: ${{ secrets.NAMECHEAP_SSH_KEY || secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.NAMECHEAP_HOST || secrets.SSH_HOST || '198.54.115.163' }}
+          SSH_USER: ${{ secrets.NAMECHEAP_USER || secrets.SSH_USER || 'acedzagz' }}
+          SSH_PORT: ${{ secrets.NAMECHEAP_PORT || secrets.SSH_PORT || '21098' }}
+        run: |
+          if [ -z "$SSH_KEY" ]; then
+            echo "No SSH key — skipping server deploy."
+            exit 0
+          fi
+
+          # Only pull + restart if server/ files changed in this push
+          SERVER_CHANGED=$(git diff --name-only HEAD~1 HEAD -- server/ 2>/dev/null || echo "")
+          if [ -z "$SERVER_CHANGED" ]; then
+            echo "No server/ changes detected — skipping server deploy."
+            exit 0
+          fi
+
+          echo "Server changes detected:"
+          echo "$SERVER_CHANGED"
+
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          echo "Pulling server updates and restarting app on Namecheap..."
+          ssh -p $SSH_PORT -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST << 'ENDSSH'
+            set -e
+            cd /home/acedzagz/acedroute
+            git pull origin main
+            # Restart the Node.js app via Passenger (touch tmp/restart.txt)
+            mkdir -p tmp
+            touch tmp/restart.txt
+            echo "Server restarted at $(date)"
+          ENDSSH
+          echo "Server deploy complete."

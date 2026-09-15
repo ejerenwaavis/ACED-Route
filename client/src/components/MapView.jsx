@@ -829,12 +829,47 @@ export default function MapView({
     };
   }, [setupLayers]);
 
-  // Synchronize style updates (theme switch or offline mode) WITHOUT tearing down WebGL canvas
+  // Track the last applied style key so we ONLY call setStyle when the user
+  // genuinely changes theme/offline/pmtiles — NOT on every initial load.
+  // Root cause of the broken-tile / missing-line bug: mapLoaded is in deps, so
+  // whenever setMapLoaded(true) fires (initial load), this effect called
+  // map.setStyle() immediately, destroying all sources & layers that setupLayers
+  // had just added.  The style was already set in the MapLibre constructor —
+  // calling setStyle again is unnecessary AND destructive on first render.
+  const lastStyleKeyRef = useRef(null);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
+
+    const pmtilesUrl = resolvePmtilesUrl(activeRegion, nativePmtilesPath);
+    const styleKey = `${mapTheme}|${offlineMode}|${String(pmtilesUrl)}|${activeRegion}`;
+
+    // First run after initial load: record the key and exit — the MapLibre
+    // constructor already applied this exact style.
+    if (lastStyleKeyRef.current === null) {
+      lastStyleKeyRef.current = styleKey;
+      diagnosticLogger.logRoutingEvent({
+        endpoint: 'setStyle',
+        status: 'INFO',
+        level: 'info',
+        summary: `ℹ️ setStyle: initial key recorded (skipping redundant call) → ${styleKey}`
+      });
+      return;
+    }
+
+    // Only call setStyle when something actually changed.
+    if (lastStyleKeyRef.current === styleKey) return;
+    lastStyleKeyRef.current = styleKey;
+
+    diagnosticLogger.logRoutingEvent({
+      endpoint: 'setStyle',
+      status: 'INFO',
+      level: 'info',
+      summary: `🎨 setStyle: style changed → ${styleKey}`
+    });
+
     try {
-      const pmtilesUrl = resolvePmtilesUrl(activeRegion, nativePmtilesPath);
       const newStyle = buildMapStyle({ pmtilesUrl, isOffline: offlineMode, theme: mapTheme });
       isSettingUpRef.current = false;
       map.setStyle(newStyle);
@@ -904,20 +939,22 @@ export default function MapView({
     // ── DIAGNOSTIC CHECK 1: Source existence at the moment setData is called ──────────
     const seqSrcExists = !!map.getSource('sequence-route-source');
     const actSrcExists = !!map.getSource('active-route-source');
-    console.error(
-      `[DIAG-1 SOURCE-EXISTENCE] sequence-route-source:${seqSrcExists} active-route-source:${actSrcExists}`
-    );
+    const diag1 = `[DIAG-1] src: seq=${seqSrcExists} act=${actSrcExists}`;
+    console.error(diag1);
+    diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-1', status: seqSrcExists && actSrcExists ? 'SUCCESS' : 'WARN', level: seqSrcExists && actSrcExists ? 'info' : 'warn', summary: diag1 });
 
     // ── DIAGNOSTIC CHECK 2: Full layer stack + line layer positions ──────────────────
     try {
       const allLayerIds = map.getStyle().layers.map(l => l.id);
       const seqIdx = allLayerIds.indexOf('sequence-route');
       const actIdx = allLayerIds.indexOf('active-route');
-      console.error(
-        `[DIAG-2 LAYER-STACK] total:${allLayerIds.length} sequence-route@${seqIdx} active-route@${actIdx} stack:${JSON.stringify(allLayerIds)}`
-      );
+      const diag2 = `[DIAG-2] layers:${allLayerIds.length} seq@${seqIdx} act@${actIdx} → ${allLayerIds.join(',')}`;
+      console.error(diag2);
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-2', status: seqIdx >= 0 && actIdx >= 0 ? 'SUCCESS' : 'WARN', level: seqIdx >= 0 && actIdx >= 0 ? 'info' : 'warn', summary: diag2 });
     } catch (diagErr) {
-      console.error('[DIAG-2 LAYER-STACK] getStyle threw:', diagErr.message, diagErr.stack);
+      const msg = `[DIAG-2] getStyle threw: ${diagErr.message}`;
+      console.error(msg, diagErr.stack);
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-2', status: 'ERR', level: 'error', summary: msg });
     }
 
     // ── DIAGNOSTIC CHECK 3: Raw coordinates (first & last) ──────────────────────────
@@ -926,11 +963,13 @@ export default function MapView({
       const actGeoJSONDiag = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
       const seqCoords = seqGeoJSONDiag.features?.[0]?.geometry?.coordinates || [];
       const actCoords = actGeoJSONDiag.features?.[0]?.geometry?.coordinates || [];
-      console.error(
-        `[DIAG-3 COORDS] seq:${seqCoords.length} first:${JSON.stringify(seqCoords[0])} last:${JSON.stringify(seqCoords[seqCoords.length - 1])} | act:${actCoords.length} first:${JSON.stringify(actCoords[0])} last:${JSON.stringify(actCoords[actCoords.length - 1])}`
-      );
+      const diag3 = `[DIAG-3] seq:${seqCoords.length} first:${JSON.stringify(seqCoords[0])} last:${JSON.stringify(seqCoords[seqCoords.length - 1])} | act:${actCoords.length} first:${JSON.stringify(actCoords[0])} last:${JSON.stringify(actCoords[actCoords.length - 1])}`;
+      console.error(diag3);
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-3', status: seqCoords.length > 0 ? 'SUCCESS' : 'WARN', level: seqCoords.length > 0 ? 'info' : 'warn', summary: diag3 });
     } catch (diagErr) {
-      console.error('[DIAG-3 COORDS] buildGeoJSON threw:', diagErr.message, diagErr.stack);
+      const msg = `[DIAG-3] buildGeoJSON threw: ${diagErr.message}`;
+      console.error(msg, diagErr.stack);
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-3', status: 'ERR', level: 'error', summary: msg });
     }
 
     // ── DIAGNOSTIC CHECK 4: Paint and visibility state ──────────────────────────────
@@ -941,11 +980,14 @@ export default function MapView({
       const actVis = map.getLayer('active-route') ? map.getLayoutProperty('active-route', 'visibility') : 'LAYER_MISSING';
       const actOpacity = map.getLayer('active-route') ? map.getPaintProperty('active-route', 'line-opacity') : 'LAYER_MISSING';
       const actWidth = map.getLayer('active-route') ? map.getPaintProperty('active-route', 'line-width') : 'LAYER_MISSING';
-      console.error(
-        `[DIAG-4 PAINT] sequence-route: visibility=${seqVis} opacity=${seqOpacity} width=${seqWidth} | active-route: visibility=${actVis} opacity=${actOpacity} width=${actWidth}`
-      );
+      const diag4 = `[DIAG-4] seq-route: vis=${seqVis} op=${seqOpacity} w=${seqWidth} | act-route: vis=${actVis} op=${actOpacity} w=${actWidth}`;
+      console.error(diag4);
+      const layersOk = seqVis !== 'LAYER_MISSING' && actVis !== 'LAYER_MISSING';
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-4', status: layersOk ? 'SUCCESS' : 'WARN', level: layersOk ? 'info' : 'warn', summary: diag4 });
     } catch (diagErr) {
-      console.error('[DIAG-4 PAINT] getLayoutProperty threw:', diagErr.message, diagErr.stack);
+      const msg = `[DIAG-4] getLayoutProperty threw: ${diagErr.message}`;
+      console.error(msg, diagErr.stack);
+      diagnosticLogger.logRoutingEvent({ endpoint: 'DIAG-4', status: 'ERR', level: 'error', summary: msg });
     }
 
     // 1. Sequence Route Line (Road-snapped) — explicit error on throw, no silent swallow
