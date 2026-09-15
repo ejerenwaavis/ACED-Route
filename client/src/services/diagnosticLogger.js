@@ -293,7 +293,8 @@ export const diagnosticLogger = {
       ''
     ].join('\n');
 
-    const lines = inMemoryLogs.map((entry) => {
+    // Reverse so newest logs are at the top (prevents clipboard truncation on Android from clipping recent logs)
+    const lines = [...inMemoryLogs].reverse().map((entry) => {
       let line = `[${entry.timeStr}] [${entry.level.toUpperCase()}] ${entry.summary}`;
       if (entry.durationMs != null) {
         line += ` (${entry.durationMs}ms)`;
@@ -304,17 +305,46 @@ export const diagnosticLogger = {
       return line;
     });
 
-    return header + lines.join('\n');
+    return header + '\n' + lines.join('\n');
   },
 
   /**
-   * Triggers an automated file download of the system diagnostic logs (.txt).
+   * Triggers an automated file download or native share sheet of the system diagnostic logs (.txt).
    */
-  downloadLogsFile() {
+  async downloadLogsFile() {
     const textContent = this.exportLogsAsText();
     const dateStamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const filename = `aced-route-system-logs-${dateStamp}.txt`;
 
+    try {
+      // Import capacitor plugins dynamically so they don't break web environments
+      const { Capacitor } = await import('@capacitor/core');
+      if (Capacitor.isNativePlatform()) {
+        const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem');
+        const { Share } = await import('@capacitor/share');
+
+        // Write file to cache directory
+        const result = await Filesystem.writeFile({
+          path: filename,
+          data: textContent,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8
+        });
+
+        // Open native share sheet so user can save it to Drive, email it, etc.
+        await Share.share({
+          title: 'ACED Route Diagnostic Logs',
+          text: 'Attached are the diagnostic logs from ACED Route.',
+          url: result.uri,
+          dialogTitle: 'Save or Share Logs'
+        });
+        return true;
+      }
+    } catch (e) {
+      console.warn('Native sharing failed, falling back to browser download:', e);
+    }
+
+    // Fallback for Web browser
     if (typeof document !== 'undefined') {
       const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
