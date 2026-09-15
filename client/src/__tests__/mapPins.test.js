@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { SUWANEE_SAMPLE_POOL, getRandomSampleSlice, formatSampleSliceToCSV } from '../data/sampleManifestPool.js';
+import { diagnosticLogger } from '../services/diagnosticLogger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -678,6 +679,40 @@ assert('routing.js calculateSequenceRoute calls fetchValhallaDirectRoute', routi
 
 const updatedServerRouteCode = fs.readFileSync(path.join(__dirname, '../../../server/routes/route.js'), 'utf8');
 assert('Server route.js implements chunking for > 10 locations in VALHALLA_FALLBACK', updatedServerRouteCode.includes('payload.locations.length > 10'));
+
+// ---------------------------------------------------------------------------
+// S16: Diagnostic Decoupling, Error Interception & Render Isolation
+// ---------------------------------------------------------------------------
+console.log('\nS16: Diagnostic Decoupling, Error Interception & Render Isolation');
+
+// 1. diagnosticLogger Error Interception & logRenderError
+assert('diagnosticLogger exports logRenderError method', typeof diagnosticLogger.logRenderError === 'function');
+const renderErrEntry = diagnosticLogger.logRenderError('test-markers', new Error('Simulated DOM failure'));
+assert('logRenderError formats message as ❌ <concern> render failed: <msg>', renderErrEntry.summary.includes('❌ test-markers render failed: Simulated DOM failure'));
+assert('logRenderError records status ERR', renderErrEntry.status === 'ERR');
+assert('logRenderError records level error', renderErrEntry.level === 'error');
+assert('logRenderError records stack trace in details', Boolean(renderErrEntry.details?.stack));
+
+// 2. Window onerror and unhandledrejection listeners
+const loggerFileContent = fs.readFileSync(path.join(__dirname, '../services/diagnosticLogger.js'), 'utf8');
+assert('diagnosticLogger registers window.addEventListener error', loggerFileContent.includes("window.addEventListener('error'"));
+assert('diagnosticLogger registers window.addEventListener unhandledrejection', loggerFileContent.includes("window.addEventListener('unhandledrejection'"));
+assert('diagnosticLogger guards duplicate window listeners', loggerFileContent.includes('window.__aced_error_listeners_attached__'));
+
+// 3. MapView Decoupled Rendering & Lifecycle Stability
+assert('MapView defines updateHudDebugInfo callback', mapViewCode.includes('const updateHudDebugInfo = useCallback'));
+assert('MapView setupLayers contains isolated setup:sequence error handling', mapViewCode.includes("diagnosticLogger.logRenderError('setup:sequence'"));
+assert('MapView setupLayers contains isolated setup:active error handling', mapViewCode.includes("diagnosticLogger.logRenderError('setup:active'"));
+assert('MapView setupLayers contains isolated setup:puck error handling', mapViewCode.includes("diagnosticLogger.logRenderError('setup:puck'"));
+assert('MapView setupLayers contains isolated setup:stops error handling', mapViewCode.includes("diagnosticLogger.logRenderError('setup:stops'"));
+assert('MapView lines effect contains isolated sequence-line error handling', mapViewCode.includes("diagnosticLogger.logRenderError('sequence-line'"));
+assert('MapView lines effect contains isolated active-line error handling', mapViewCode.includes("diagnosticLogger.logRenderError('active-line'"));
+assert('MapView lines effect contains isolated active-dots error handling', mapViewCode.includes("diagnosticLogger.logRenderError('active-dots'"));
+assert('MapView markers effect contains isolated markers error handling', mapViewCode.includes("diagnosticLogger.logRenderError('markers'"));
+assert('MapView markers effect updates HUD debug info after completion', mapViewCode.includes('updateHudDebugInfo();'));
+assert('MapView map initialization runs with stable deps (does not recreate on pmtiles resolve)', !mapViewCode.includes('}, [activeRegion, nativePmtilesPath'));
+assert('MapView fitMapToBounds uses 45km threshold for intra-metro testing', mapViewCode.includes('dist <= 45000'));
+assert('MapView fitMapToBounds accounts for fullscreen card padding', mapViewCode.includes('isFullscreen ? 240 : 100'));
 
 // Summary
 console.log('\n=== Results: '+pass+' passed, '+fail+' failed ===\n');

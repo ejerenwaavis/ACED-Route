@@ -90,6 +90,43 @@ async function initLogger() {
 // Kick off initialization
 if (typeof window !== 'undefined') {
   initLogger();
+
+  // Capture all unhandled exceptions and promise rejections across WebView
+  if (!window.__aced_error_listeners_attached__) {
+    window.__aced_error_listeners_attached__ = true;
+
+    window.addEventListener('error', (event) => {
+      const msg = event.message || 'Script error';
+      const file = event.filename ? event.filename.split('/').pop() : 'unknown';
+      diagnosticLogger.logRoutingEvent({
+        endpoint: 'window.onerror',
+        status: 'CRASH',
+        level: 'error',
+        summary: `❌ Uncaught Error: ${msg} (${file}:${event.lineno || '?'})`,
+        details: {
+          message: msg,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          stack: event.error?.stack || null
+        }
+      });
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      const reasonMsg = event.reason?.message || (typeof event.reason === 'string' ? event.reason : JSON.stringify(event.reason));
+      diagnosticLogger.logRoutingEvent({
+        endpoint: 'window.unhandledrejection',
+        status: 'CRASH',
+        level: 'error',
+        summary: `❌ Unhandled Rejection: ${reasonMsg || 'Promise rejected'}`,
+        details: {
+          reason: reasonMsg,
+          stack: event.reason?.stack || null
+        }
+      });
+    });
+  }
 }
 
 /**
@@ -189,6 +226,24 @@ export const diagnosticLogger = {
     }
 
     return entry;
+  },
+
+  /**
+   * Standardized logger for rendering failures (markers, lines, dots, pins).
+   * Formats message as "❌ <concern> render failed: <msg>" and records full stack trace.
+   */
+  logRenderError(concern, err) {
+    const msg = err?.message || String(err);
+    return this.logRoutingEvent({
+      endpoint: concern,
+      status: 'ERR',
+      level: 'error',
+      summary: `❌ ${concern} render failed: ${msg}`,
+      details: {
+        error: msg,
+        stack: err?.stack || null
+      }
+    });
   },
 
   /**
