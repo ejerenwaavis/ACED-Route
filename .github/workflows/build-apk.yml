@@ -130,7 +130,7 @@ jobs:
 
       - name: Publish GitHub Release (Latest APK)
         uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/pin-fix'
         with:
           tag_name: latest-apk
           name: "ACED Route Mobile App (Latest Debug APK)"
