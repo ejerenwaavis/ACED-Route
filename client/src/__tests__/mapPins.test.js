@@ -649,7 +649,7 @@ assert('Sequence dot trail generates circle points across stops', seqDotsFC.feat
 
 // 4. Debug HUD Format & SystemLogModal Clickable Access
 assert('MapView HUD string includes both lines, dots, and lastFetch', mapViewCode.includes('lines:{seq:${seqCoordsCount}, act:${actCoordsCount}} dots:{seq:${seqDotsCount}, act:${actDotsCount}} lastFetch:${diagnosticLogger.getLastFetchOutcome()}'));
-assert('MapView debug HUD pill is clickable to open SystemLogModal', mapViewCode.includes('onClick={() => setShowLogsModal(true)}'));
+assert('MapView debug HUD pill is clickable to open SystemLogModal', mapViewCode.includes('setShowLogsModal(true)'));
 assert('MapView renders SystemLogModal component', mapViewCode.includes('<SystemLogModal'));
 
 // 5. CSS Navigating Badge Offset Verification (Moved cleanly down to 9.0rem below turn card)

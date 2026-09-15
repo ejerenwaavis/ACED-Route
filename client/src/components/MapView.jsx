@@ -91,19 +91,21 @@ export function buildSequenceRouteGeoJSON(stopsList, sequenceCoords = null, isRo
     return { type: 'FeatureCollection', features: [] };
   }
   if (sequenceCoords && sequenceCoords.length >= 2) {
-    return {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: sequenceCoords
-          },
-          properties: {}
-        }
-      ]
-    };
+    const sanitizedCoords = sequenceCoords.filter(pt => pt && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1]));
+    if (sanitizedCoords.length >= 2) {
+      return {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: sanitizedCoords
+            }
+          ]
+        };
+      }
+    }
   }
   const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
   if (validCoords.length < 2) {
@@ -175,7 +177,7 @@ export function buildActiveRouteGeoJSON(stopsList, activeIdx, activeRouteCoords,
   const hasDriverLoc = dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat);
 
   if (activeRouteCoords && activeRouteCoords.length > 1) {
-    coords = activeRouteCoords.map(pt => [...pt]);
+    coords = activeRouteCoords.filter(pt => pt && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1])).map(pt => [...pt]);
     // Snap route head directly to vehicle location so line is never disconnected
     if (hasDriverLoc && coords.length > 0) {
       coords[0] = [dlLng, dlLat];
@@ -388,9 +390,9 @@ export default function MapView({
   const [mapTheme, setMapTheme] = useState('street');
   const [nativePmtilesPath, setNativePmtilesPath] = useState(null);
   const [offlineMode, setOfflineMode] = useState(false);
-  // Debug HUD — shows live layer-setup status on device screen
   const [debugInfo, setDebugInfo] = useState('waiting…');
   const [showLogsModal, setShowLogsModal] = useState(false);
+  const [isHudExpanded, setIsHudExpanded] = useState(false);
 
   // Centralized Debug HUD status updater
   const updateHudDebugInfo = useCallback(() => {
@@ -1425,14 +1427,46 @@ export default function MapView({
           </div>
         )}
 
-        {/* Always-visible live diagnostic HUD (tap to view System Diagnostic Logs) */}
+        {/* Always-visible live diagnostic HUD */}
         <div
           className={`map-debug-hud-pill ${isNavigating ? 'map-debug-hud-navigating' : ''}`}
-          onClick={() => setShowLogsModal(true)}
-          style={{ cursor: 'pointer', pointerEvents: 'auto' }}
-          title="Click to view Diagnostic Logs"
+          onClick={() => setIsHudExpanded(!isHudExpanded)}
+          style={{ 
+            cursor: 'pointer', 
+            pointerEvents: 'auto',
+            whiteSpace: isHudExpanded ? 'pre-wrap' : 'nowrap',
+            wordBreak: isHudExpanded ? 'break-all' : 'normal',
+            maxWidth: isHudExpanded ? '85vw' : '220px',
+            overflow: 'hidden',
+            textOverflow: isHudExpanded ? 'clip' : 'ellipsis',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: '0.25rem'
+          }}
+          title="Click to expand or view Diagnostic Logs"
         >
           <span>{debugInfo}</span>
+          {isHudExpanded && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowLogsModal(true);
+              }}
+              style={{
+                background: '#475569',
+                border: 'none',
+                borderRadius: '4px',
+                color: 'white',
+                fontSize: '0.65rem',
+                padding: '2px 6px',
+                marginTop: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              View Full Logs
+            </button>
+          )}
         </div>
 
         {/* Modular Floating Map Controls (Notch Safe) */}
