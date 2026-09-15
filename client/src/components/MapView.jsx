@@ -495,9 +495,6 @@ export default function MapView({
 
   const [isPmtilesPathResolved, setIsPmtilesPathResolved] = useState(false);
 
-  // Auto-engage fullscreen & follow vehicle when navigation begins
-  const lastCameraBearingRef = useRef(0);
-
   // Resolve offline PMTiles path once on mount
   useEffect(() => {
     let isMounted = true;
@@ -513,30 +510,6 @@ export default function MapView({
       isMounted = false;
     };
   }, [activeRegion]);
-
-  useEffect(() => {
-    if (isNavigating) {
-      setIsFullscreen(true);
-      setUserIsPanning(false);
-      userIsPanningRef.current = false;
-      const map = mapRef.current;
-      const curDriverLoc = driverLocationRef.current;
-      if (map && curDriverLoc) {
-        const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
-        const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
-        if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
-          map.flyTo({
-            center: [dlLng, dlLat],
-            zoom: 17,
-            pitch: 50,
-            bearing: lastCameraBearingRef.current || 0,
-            duration: 800,
-            essential: true
-          });
-        }
-      }
-    }
-  }, [isNavigating]);
 
   // 2. Hardware Android Back Button Listener in Fullscreen
   useEffect(() => {
