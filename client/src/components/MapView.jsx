@@ -558,13 +558,13 @@ export default function MapView({
         });
         safeAddLayer(map, {
           id: 'sequence-route-casing', type: 'line', source: 'sequence-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#0f172a', 'line-width': 8, 'line-opacity': 0.7 }
+          layout: { 'visibility': 'visible' },
+          paint: { 'line-color': '#0f172a', 'line-width': 8 }
         });
         safeAddLayer(map, {
           id: 'sequence-route', type: 'line', source: 'sequence-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#2676D9', 'line-width': 4, 'line-opacity': 0.95 }
+          layout: { 'visibility': 'visible' },
+          paint: { 'line-color': '#2676D9', 'line-width': 4 }
         });
 
         safeAddSource(map, 'sequence-dots-source', {
@@ -575,10 +575,10 @@ export default function MapView({
           id: 'sequence-route-approximate-dots',
           type: 'circle',
           source: 'sequence-dots-source',
+          layout: { 'visibility': 'visible' },
           paint: {
             'circle-radius': 4,
             'circle-color': '#f59e0b',
-            'circle-opacity': 0.95,
             'circle-stroke-width': 1,
             'circle-stroke-color': '#1e293b'
           }
@@ -595,13 +595,13 @@ export default function MapView({
         });
         safeAddLayer(map, {
           id: 'active-route-casing', type: 'line', source: 'active-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#064e3b', 'line-width': 10, 'line-opacity': 0.8 }
+          layout: { 'visibility': 'visible' },
+          paint: { 'line-color': '#064e3b', 'line-width': 10 }
         });
         safeAddLayer(map, {
           id: 'active-route', type: 'line', source: 'active-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
-          paint: { 'line-color': '#22c55e', 'line-width': 6, 'line-opacity': 1.0 }
+          layout: { 'visibility': 'visible' },
+          paint: { 'line-color': '#22c55e', 'line-width': 6 }
         });
 
         const activeTargetStop = curStops && curStops[curActiveIdx];
