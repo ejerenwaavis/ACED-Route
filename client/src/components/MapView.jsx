@@ -1026,7 +1026,13 @@ export default function MapView({
       const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
       const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
       if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
-        bounds.extend([dlLng, dlLat]);
+        // Only extend bounds to vehicle if driver is within 20km of manifest
+        // Prevents over-zooming out when testing sample manifests from another city
+        const first = validCoords[0];
+        const dist = haversineDistance(dlLat, dlLng, first[1], first[0]);
+        if (dist <= 20000) {
+          bounds.extend([dlLng, dlLat]);
+        }
       }
     }
 
@@ -1037,18 +1043,27 @@ export default function MapView({
     });
   }, [stops]);
 
-  // Initial fit: runs when stops and/or driverLocation first become available
+  // Re-frame bounds when a new set of stops is loaded
+  const prevStopsLengthRef = useRef(0);
   useEffect(() => {
-    if (mapLoaded && stops.length > 0) {
-      if (!hasInitialFitRef.current) {
-        hasInitialFitRef.current = true;
-        fitMapToBounds();
-      } else if (driverLocation && !hasGpsFittedRef.current && !isNavigating) {
-        hasGpsFittedRef.current = true;
-        fitMapToBounds();
+    if (mapLoaded && stops.length > 0 && stops.length !== prevStopsLengthRef.current) {
+      prevStopsLengthRef.current = stops.length;
+      fitMapToBounds();
+    }
+  }, [mapLoaded, stops.length, fitMapToBounds]);
+
+  // Pan to selected/active stop when tapping a stop card in non-navigating mode
+  const prevActiveIndexRef = useRef(activeIndex);
+  useEffect(() => {
+    if (mapLoaded && !isNavigating && activeIndex !== prevActiveIndexRef.current) {
+      prevActiveIndexRef.current = activeIndex;
+      const target = stops[activeIndex];
+      const coords = getStopCoords(target);
+      if (coords && mapRef.current) {
+        mapRef.current.flyTo({ center: coords, zoom: 15.5, duration: 600 });
       }
     }
-  }, [mapLoaded, stops.length, driverLocation, isNavigating, fitMapToBounds]);
+  }, [activeIndex, stops, mapLoaded, isNavigating]);
 
   // Explicit Recenter Button Handler
   const handleRecenter = () => {
