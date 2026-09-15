@@ -101,10 +101,11 @@ export function buildSequenceRouteGeoJSON(stopsList, sequenceCoords = null, isRo
             geometry: {
               type: 'LineString',
               coordinates: sanitizedCoords
-            }
-          ]
-        };
-      }
+            },
+            properties: {}
+          }
+        ]
+      };
     }
   }
   const validCoords = (stopsList || []).map(getStopCoords).filter(Boolean);
