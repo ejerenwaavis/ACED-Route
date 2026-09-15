@@ -493,18 +493,50 @@ export default function MapView({
 
   const activeRegion = regionId || routingService.getActiveRegion() || 'sample-metro';
 
-  // 1. Check local offline storage
+  const [isPmtilesPathResolved, setIsPmtilesPathResolved] = useState(false);
+
+  // Auto-engage fullscreen & follow vehicle when navigation begins
+  const lastCameraBearingRef = useRef(0);
+
+  // Resolve offline PMTiles path once on mount
   useEffect(() => {
     let isMounted = true;
     routingService.checkRegion(activeRegion).then((res) => {
-      if (isMounted && res && res.pmtilesPath) {
-        setNativePmtilesPath(res.pmtilesPath);
+      if (isMounted) {
+        if (res && res.pmtilesPath) {
+          setNativePmtilesPath(res.pmtilesPath);
+        }
+        setIsPmtilesPathResolved(true);
       }
     });
     return () => {
       isMounted = false;
     };
   }, [activeRegion]);
+
+  useEffect(() => {
+    if (isNavigating) {
+      setIsFullscreen(true);
+      setUserIsPanning(false);
+      userIsPanningRef.current = false;
+      const map = mapRef.current;
+      const curDriverLoc = driverLocationRef.current;
+      if (map && curDriverLoc) {
+        const dlLng = Array.isArray(curDriverLoc) ? curDriverLoc[0] : curDriverLoc?.longitude;
+        const dlLat = Array.isArray(curDriverLoc) ? curDriverLoc[1] : curDriverLoc?.latitude;
+        if (dlLng != null && dlLat != null && !isNaN(dlLng) && !isNaN(dlLat)) {
+          map.flyTo({
+            center: [dlLng, dlLat],
+            zoom: 17,
+            pitch: 50,
+            bearing: lastCameraBearingRef.current || 0,
+            duration: 800,
+            essential: true
+          });
+        }
+      }
+    }
+  }, [isNavigating]);
 
   // 2. Hardware Android Back Button Listener in Fullscreen
   useEffect(() => {
@@ -739,7 +771,7 @@ export default function MapView({
 
   // Initialize MapLibre GL instance
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!mapContainerRef.current || !isPmtilesPathResolved) return;
 
     // Wire up the debug HUD callback so setupLayers (useCallback []) can write to state
     setDebugInfoRef.current = setDebugInfo;
@@ -783,9 +815,12 @@ export default function MapView({
     });
 
     // Detect user manual interaction so we do NOT forcibly snap the camera back
-    const handleUserMapInteraction = () => {
-      setUserIsPanning(true);
-      userIsPanningRef.current = true;
+    const handleUserMapInteraction = (e) => {
+      // Only treat it as user panning if it originated from a real DOM event
+      if (e && e.originalEvent) {
+        setUserIsPanning(true);
+        userIsPanningRef.current = true;
+      }
     };
     map.on('dragstart', handleUserMapInteraction);
     map.on('rotatestart', handleUserMapInteraction);
@@ -831,7 +866,7 @@ export default function MapView({
       setMapLoaded(false);
       setDebugInfo('waiting…');
     };
-  }, [setupLayers]);
+  }, [setupLayers, isPmtilesPathResolved]);
 
   // Track the last applied style key so we ONLY call setStyle when the user
   // genuinely changes theme/offline/pmtiles — NOT on every initial load.
@@ -1007,6 +1042,7 @@ export default function MapView({
       const seqSource = map.getSource('sequence-route-source');
       if (seqSource) {
         try {
+          console.error(`[GEO-CHECK] SEQ -> feats:${seqGeoJSON.features?.length} type:${seqGeoJSON.features?.[0]?.geometry?.type} coords:${seqGeoJSON.features?.[0]?.geometry?.coordinates?.length}`);
           seqSource.setData(seqGeoJSON);
         } catch (seqErr) {
           console.error('[LINE-RENDER] sequence-route-source.setData THREW:', seqErr.message, seqErr.stack);
@@ -1036,6 +1072,7 @@ export default function MapView({
       const activeSource = map.getSource('active-route-source');
       if (activeSource) {
         try {
+          console.error(`[GEO-CHECK] ACT -> feats:${activeGeoJSON.features?.length} type:${activeGeoJSON.features?.[0]?.geometry?.type} coords:${activeGeoJSON.features?.[0]?.geometry?.coordinates?.length}`);
           activeSource.setData(activeGeoJSON);
         } catch (actErr) {
           console.error('[LINE-RENDER] active-route-source.setData THREW:', actErr.message, actErr.stack);
