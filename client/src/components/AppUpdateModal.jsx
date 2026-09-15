@@ -290,21 +290,19 @@ export default function AppUpdateModal({ isOpen, onClose }) {
                 </div>
                 <button
                   onClick={handleInstallUpdate}
+                  disabled={!isCloudNewer}
                   style={{
-                    background: '#F28C28',
+                    background: isCloudNewer ? '#F28C28' : '#30353E',
                     border: 'none',
                     borderRadius: '10px',
                     padding: '0.5rem 1.1rem',
-                    color: '#FFFFFF',
+                    color: isCloudNewer ? '#FFFFFF' : '#8A8F96',
                     fontWeight: 700,
-                    fontSize: '0.82rem',
-                    letterSpacing: '0.5px',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    boxShadow: '0 2px 8px rgba(242, 140, 40, 0.4)'
+                    cursor: isCloudNewer ? 'pointer' : 'not-allowed',
+                    opacity: isCloudNewer ? 1 : 0.7
                   }}
                 >
-                  UPDATE
+                  {isCloudNewer ? 'UPDATE' : 'UP TO DATE'}
                 </button>
               </div>
             ) : (
@@ -535,16 +533,18 @@ export default function AppUpdateModal({ isOpen, onClose }) {
 
               <button
                 onClick={handleInstallUpdate}
+                disabled={!isCloudNewer}
                 style={{
                   background: isCloudNewer ? '#F28C28' : '#2A2E35',
                   border: 'none',
                   borderRadius: '14px',
                   padding: '0.85rem',
-                  color: '#FFFFFF',
-                  cursor: 'pointer',
+                  color: isCloudNewer ? '#FFFFFF' : '#8A8F96',
+                  cursor: isCloudNewer ? 'pointer' : 'not-allowed',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.65rem',
+                  gap: '0.75rem',
+                  opacity: isCloudNewer ? 1 : 0.6,
                   boxShadow: isCloudNewer ? '0 4px 14px rgba(242, 140, 40, 0.4)' : 'none'
                 }}
               >
