@@ -1067,7 +1067,10 @@ export default function MapView({
       const seqSource = map.getSource('sequence-route-source');
       if (seqSource) {
         try {
-          console.error(`[GEO-CHECK] SEQ -> feats:${seqGeoJSON.features?.length} type:${seqGeoJSON.features?.[0]?.geometry?.type} coords:${seqGeoJSON.features?.[0]?.geometry?.coordinates?.length}`);
+          const geoCheckStr = `[GEO-CHECK] SEQ -> feats:${seqGeoJSON.features?.length} type:${seqGeoJSON.features?.[0]?.geometry?.type} coords:${seqGeoJSON.features?.[0]?.geometry?.coordinates?.length}`;
+          console.error(geoCheckStr);
+          diagnosticLogger.logRoutingEvent({ endpoint: 'GEO-CHECK', status: 'INFO', level: 'info', summary: geoCheckStr });
+
           console.trace(`[TRACE] Calling setData for sequence-route-source`);
           seqSource.setData(seqGeoJSON);
         } catch (seqErr) {
@@ -1095,20 +1098,27 @@ export default function MapView({
 
     // 3. Active Target Leg Line (Road-snapped)
     {
-      const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
-      const activeSource = map.getSource('active-route-source');
-      if (activeSource) {
-        try {
-          console.error(`[GEO-CHECK] ACT -> feats:${activeGeoJSON.features?.length} type:${activeGeoJSON.features?.[0]?.geometry?.type} coords:${activeGeoJSON.features?.[0]?.geometry?.coordinates?.length}`);
-          console.trace(`[TRACE] Calling setData for active-route-source`);
-          activeSource.setData(activeGeoJSON);
-        } catch (actErr) {
-          console.error('[LINE-RENDER] active-route-source.setData THREW:', actErr.message, actErr.stack);
-          diagnosticLogger.logRenderError('active-line', actErr);
+      try {
+        const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
+        const activeSource = map.getSource('active-route-source');
+        if (activeSource) {
+          try {
+            const geoCheckStr = `[GEO-CHECK] ACT -> feats:${activeGeoJSON.features?.length} type:${activeGeoJSON.features?.[0]?.geometry?.type} coords:${activeGeoJSON.features?.[0]?.geometry?.coordinates?.length}`;
+            console.error(geoCheckStr);
+            diagnosticLogger.logRoutingEvent({ endpoint: 'GEO-CHECK', status: 'INFO', level: 'info', summary: geoCheckStr });
+
+            console.trace(`[TRACE] Calling setData for active-route-source`);
+            activeSource.setData(activeGeoJSON);
+          } catch (actErr) {
+            console.error('[LINE-RENDER] active-route-source.setData THREW:', actErr.message, actErr.stack);
+            diagnosticLogger.logRenderError('active-line', actErr);
+          }
+        } else {
+          console.error('[LINE-RENDER] active-route-source NOT FOUND — calling setupLayers');
+          setupLayers(map);
         }
-      } else {
-        console.error('[LINE-RENDER] active-route-source NOT FOUND — calling setupLayers');
-        setupLayers(map);
+      } catch (actRouteErr) {
+        diagnosticLogger.logRenderError('active-line-build', actRouteErr);
       }
     }
 
