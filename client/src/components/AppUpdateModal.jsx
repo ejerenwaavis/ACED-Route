@@ -345,7 +345,7 @@ export default function AppUpdateModal({ isOpen, onClose }) {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
+                gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
                 gap: '0.75rem',
                 marginBottom: '1.25rem'
               }}
@@ -359,7 +359,8 @@ export default function AppUpdateModal({ isOpen, onClose }) {
                   padding: '1rem',
                   display: 'flex',
                   flexDirection: 'column',
-                  justifyContent: 'space-between'
+                  justifyContent: 'space-between',
+                  minWidth: 0
                 }}
               >
                 <div>
@@ -369,7 +370,7 @@ export default function AppUpdateModal({ isOpen, onClose }) {
                       CURRENTLY INSTALLED
                     </span>
                   </div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem', wordBreak: 'break-all' }}>
                     v{currentVersion.versionName} <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#6B7280' }}>(#{currentVersion.versionCode})</span>
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#6B7280' }}>
@@ -409,7 +410,8 @@ export default function AppUpdateModal({ isOpen, onClose }) {
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
-                  boxShadow: isCloudNewer ? '0 0 16px rgba(38, 118, 217, 0.15)' : 'none'
+                  boxShadow: isCloudNewer ? '0 0 16px rgba(38, 118, 217, 0.15)' : 'none',
+                  minWidth: 0
                 }}
               >
                 <div>
@@ -419,7 +421,7 @@ export default function AppUpdateModal({ isOpen, onClose }) {
                       CLOUD RELEASE
                     </span>
                   </div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem', wordBreak: 'break-all' }}>
                     {releaseInfo?.tag || 'latest-apk'}{' '}
                     <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#6B7280' }}>
                       ({releaseInfo?.sizeMB || '4.6'} MB)

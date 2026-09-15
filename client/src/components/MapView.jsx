@@ -555,12 +555,12 @@ export default function MapView({
         });
         safeAddLayer(map, {
           id: 'sequence-route-casing', type: 'line', source: 'sequence-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
           paint: { 'line-color': '#0f172a', 'line-width': 8, 'line-opacity': 0.7 }
         });
         safeAddLayer(map, {
           id: 'sequence-route', type: 'line', source: 'sequence-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
           paint: { 'line-color': '#2676D9', 'line-width': 4.5, 'line-opacity': 0.95 }
         });
 
@@ -592,12 +592,12 @@ export default function MapView({
         });
         safeAddLayer(map, {
           id: 'active-route-casing', type: 'line', source: 'active-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
           paint: { 'line-color': '#064e3b', 'line-width': 11, 'line-opacity': 0.8 }
         });
         safeAddLayer(map, {
           id: 'active-route', type: 'line', source: 'active-route-source',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'visible' },
           paint: { 'line-color': '#22c55e', 'line-width': 6.5, 'line-opacity': 1.0 }
         });
 
@@ -1059,14 +1059,24 @@ export default function MapView({
       diagnosticLogger.logRenderError('active-dots', actDotsErr);
     }
 
-    // 5. Force WebGL redraw — ensures line geometry is flushed to the GPU after setData
+    // 5. Force explicit visibility on all line layers to bypass potential WebView rendering bugs
+    try {
+      if (seqLayerExists) map.setLayoutProperty('sequence-route', 'visibility', 'visible');
+      if (map.getLayer('sequence-route-casing')) map.setLayoutProperty('sequence-route-casing', 'visibility', 'visible');
+      if (actLayerExists) map.setLayoutProperty('active-route', 'visibility', 'visible');
+      if (map.getLayer('active-route-casing')) map.setLayoutProperty('active-route-casing', 'visibility', 'visible');
+    } catch (_) {}
+
+    // 6. Force WebGL redraw — ensures line geometry is flushed to the GPU after setData
     try { map.triggerRepaint(); } catch (_) {}
 
-    // 6. Ensure overlay layers remain above raster basemaps
+
+    // 7. Ensure overlay layers remain above raster basemaps
     try { ensureOverlaysOnTop(map); } catch (_) {}
 
-    // 7. Update HUD info
+    // 8. Update HUD info
     updateHudDebugInfo();
+
   }, [stops, activeIndex, sequenceRouteCoordinates, isSequenceRoadSnapped, activeRouteCoordinates, isActiveRoadSnapped, driverLocation, mapLoaded, setupLayers, updateHudDebugInfo]);
 
 
