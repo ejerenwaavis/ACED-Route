@@ -21,18 +21,14 @@ const FALLBACK_APK_URL = 'https://github.com/ejerenwaavis/ACED-Route/releases/do
 export default function AppUpdateModal({ isOpen, onClose }) {
   const [step, setStep] = useState('ready'); // 'ready' | 'installing' | 'complete'
   const [checking, setChecking] = useState(false);
+  const [lastChecked, setLastChecked] = useState(null);
   const [releaseInfo, setReleaseInfo] = useState(null);
   const [currentVersion, setCurrentVersion] = useState({ versionName: '1.0.0', versionCode: 1 });
   const [errorMessage, setErrorMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const progressTimerRef = useRef(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setStep('ready');
-    setProgressPercent(0);
-
-    // 1. Get installed native version
+  const fetchLocalVersion = () => {
     if (AcedRouting && typeof AcedRouting.getAppVersion === 'function') {
       AcedRouting.getAppVersion()
         .then((ver) => {
@@ -42,10 +38,16 @@ export default function AppUpdateModal({ isOpen, onClose }) {
           console.warn('[AppUpdateModal] Could not get native app version:', err);
         });
     }
+  };
 
-    // 2. Check latest release from GitHub
-    checkForUpdates();
-
+  useEffect(() => {
+    if (isOpen) {
+      setStep('ready');
+      setErrorMessage('');
+      setProgressPercent(0);
+      fetchLocalVersion();
+      checkForUpdates();
+    }
     return () => {
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     };
@@ -56,8 +58,13 @@ export default function AppUpdateModal({ isOpen, onClose }) {
     setErrorMessage('');
 
     try {
-      const res = await fetch(GITHUB_RELEASE_API, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' }
+      const res = await fetch(`${GITHUB_RELEASE_API}?t=${Date.now()}`, {
+        headers: { 
+          'Accept': 'application/vnd.github.v3+json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
       });
 
       if (!res.ok) {
@@ -90,6 +97,7 @@ export default function AppUpdateModal({ isOpen, onClose }) {
       });
     } finally {
       setChecking(false);
+      setLastChecked(new Date());
     }
   };
 
@@ -497,6 +505,11 @@ export default function AppUpdateModal({ isOpen, onClose }) {
             )}
 
             {/* Action Buttons */}
+            {lastChecked && (
+              <div style={{ fontSize: '0.75rem', color: '#6B7280', textAlign: 'center', marginBottom: '0.75rem' }}>
+                Last checked: {lastChecked.toLocaleTimeString()}
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '0.75rem' }}>
               <button
                 onClick={checkForUpdates}
