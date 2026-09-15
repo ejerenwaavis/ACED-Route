@@ -711,10 +711,9 @@ export default function MapView({
       } catch (stopErr) {
         diagnosticLogger.logRenderError('setup:stops', stopErr);
       }
-
-      // Explicitly move all custom overlay layers to the TOP of the layer stack
-      ensureOverlaysOnTop(map);
-
+      
+      // MapLibre natively adds layers to the top of the style.
+      
       mapRef.current = map;
       setMapLoaded(true);
 
@@ -1072,10 +1071,6 @@ export default function MapView({
 
     // 6. Force WebGL redraw — ensures line geometry is flushed to the GPU after setData
     try { map.triggerRepaint(); } catch (_) {}
-
-
-    // 7. Ensure overlay layers remain above raster basemaps
-    try { ensureOverlaysOnTop(map); } catch (_) {}
 
     // 8. Update HUD info
     updateHudDebugInfo();

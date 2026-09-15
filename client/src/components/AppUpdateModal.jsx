@@ -60,10 +60,7 @@ export default function AppUpdateModal({ isOpen, onClose }) {
     try {
       const res = await fetch(`${GITHUB_RELEASE_API}?t=${Date.now()}`, {
         headers: { 
-          'Accept': 'application/vnd.github.v3+json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+          'Accept': 'application/vnd.github.v3+json'
         }
       });
 
