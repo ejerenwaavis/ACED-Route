@@ -895,22 +895,74 @@ export default function MapView({
   }, [driverLocation, mapLoaded, setupLayers]);
 
   // Update Polylines: Sequence Route (Blue) & Active Route (Green) or Approximate Dot-Trails
-  // Decoupled into isolated try/catch blocks so one failure cannot abort the others
+  // DIAGNOSTIC VERSION: try/catch REMOVED from setData/addLayer calls — any thrown error will
+  // print explicitly to console.error so it cannot be silently swallowed.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // 1. Sequence Route Line (Road-snapped)
+    // ── DIAGNOSTIC CHECK 1: Source existence at the moment setData is called ──────────
+    const seqSrcExists = !!map.getSource('sequence-route-source');
+    const actSrcExists = !!map.getSource('active-route-source');
+    console.error(
+      `[DIAG-1 SOURCE-EXISTENCE] sequence-route-source:${seqSrcExists} active-route-source:${actSrcExists}`
+    );
+
+    // ── DIAGNOSTIC CHECK 2: Full layer stack + line layer positions ──────────────────
     try {
+      const allLayerIds = map.getStyle().layers.map(l => l.id);
+      const seqIdx = allLayerIds.indexOf('sequence-route');
+      const actIdx = allLayerIds.indexOf('active-route');
+      console.error(
+        `[DIAG-2 LAYER-STACK] total:${allLayerIds.length} sequence-route@${seqIdx} active-route@${actIdx} stack:${JSON.stringify(allLayerIds)}`
+      );
+    } catch (diagErr) {
+      console.error('[DIAG-2 LAYER-STACK] getStyle threw:', diagErr.message, diagErr.stack);
+    }
+
+    // ── DIAGNOSTIC CHECK 3: Raw coordinates (first & last) ──────────────────────────
+    try {
+      const seqGeoJSONDiag = buildSequenceRouteGeoJSON(stops, sequenceRouteCoordinates, isSequenceRoadSnapped);
+      const actGeoJSONDiag = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
+      const seqCoords = seqGeoJSONDiag.features?.[0]?.geometry?.coordinates || [];
+      const actCoords = actGeoJSONDiag.features?.[0]?.geometry?.coordinates || [];
+      console.error(
+        `[DIAG-3 COORDS] seq:${seqCoords.length} first:${JSON.stringify(seqCoords[0])} last:${JSON.stringify(seqCoords[seqCoords.length - 1])} | act:${actCoords.length} first:${JSON.stringify(actCoords[0])} last:${JSON.stringify(actCoords[actCoords.length - 1])}`
+      );
+    } catch (diagErr) {
+      console.error('[DIAG-3 COORDS] buildGeoJSON threw:', diagErr.message, diagErr.stack);
+    }
+
+    // ── DIAGNOSTIC CHECK 4: Paint and visibility state ──────────────────────────────
+    try {
+      const seqVis = map.getLayer('sequence-route') ? map.getLayoutProperty('sequence-route', 'visibility') : 'LAYER_MISSING';
+      const seqOpacity = map.getLayer('sequence-route') ? map.getPaintProperty('sequence-route', 'line-opacity') : 'LAYER_MISSING';
+      const seqWidth = map.getLayer('sequence-route') ? map.getPaintProperty('sequence-route', 'line-width') : 'LAYER_MISSING';
+      const actVis = map.getLayer('active-route') ? map.getLayoutProperty('active-route', 'visibility') : 'LAYER_MISSING';
+      const actOpacity = map.getLayer('active-route') ? map.getPaintProperty('active-route', 'line-opacity') : 'LAYER_MISSING';
+      const actWidth = map.getLayer('active-route') ? map.getPaintProperty('active-route', 'line-width') : 'LAYER_MISSING';
+      console.error(
+        `[DIAG-4 PAINT] sequence-route: visibility=${seqVis} opacity=${seqOpacity} width=${seqWidth} | active-route: visibility=${actVis} opacity=${actOpacity} width=${actWidth}`
+      );
+    } catch (diagErr) {
+      console.error('[DIAG-4 PAINT] getLayoutProperty threw:', diagErr.message, diagErr.stack);
+    }
+
+    // 1. Sequence Route Line (Road-snapped) — explicit error on throw, no silent swallow
+    {
       const seqGeoJSON = buildSequenceRouteGeoJSON(stops, sequenceRouteCoordinates, isSequenceRoadSnapped);
       const seqSource = map.getSource('sequence-route-source');
       if (seqSource) {
-        seqSource.setData(seqGeoJSON);
+        try {
+          seqSource.setData(seqGeoJSON);
+        } catch (seqErr) {
+          console.error('[LINE-RENDER] sequence-route-source.setData THREW:', seqErr.message, seqErr.stack);
+          diagnosticLogger.logRenderError('sequence-line', seqErr);
+        }
       } else {
+        console.error('[LINE-RENDER] sequence-route-source NOT FOUND — calling setupLayers');
         setupLayers(map);
       }
-    } catch (seqErr) {
-      diagnosticLogger.logRenderError('sequence-line', seqErr);
     }
 
     // 2. Sequence Dot-Trail (Approximate dots)
@@ -921,20 +973,25 @@ export default function MapView({
         seqDotsSource.setData(seqDotsGeoJSON);
       }
     } catch (seqDotsErr) {
+      console.error('[LINE-RENDER] sequence-dots setData THREW:', seqDotsErr.message, seqDotsErr.stack);
       diagnosticLogger.logRenderError('sequence-dots', seqDotsErr);
     }
 
-    // 3. Active Target Leg Line (Road-snapped)
-    try {
+    // 3. Active Target Leg Line (Road-snapped) — explicit error on throw, no silent swallow
+    {
       const activeGeoJSON = buildActiveRouteGeoJSON(stops, activeIndex, activeRouteCoordinates, driverLocation, isActiveRoadSnapped);
       const activeSource = map.getSource('active-route-source');
       if (activeSource) {
-        activeSource.setData(activeGeoJSON);
+        try {
+          activeSource.setData(activeGeoJSON);
+        } catch (actErr) {
+          console.error('[LINE-RENDER] active-route-source.setData THREW:', actErr.message, actErr.stack);
+          diagnosticLogger.logRenderError('active-line', actErr);
+        }
       } else {
+        console.error('[LINE-RENDER] active-route-source NOT FOUND — calling setupLayers');
         setupLayers(map);
       }
-    } catch (actErr) {
-      diagnosticLogger.logRenderError('active-line', actErr);
     }
 
     // 4. Active Target Leg Dot-Trail (Approximate dots)
@@ -947,6 +1004,7 @@ export default function MapView({
         activeDotsSource.setData(activeDotsGeoJSON);
       }
     } catch (actDotsErr) {
+      console.error('[LINE-RENDER] active-dots setData THREW:', actDotsErr.message, actDotsErr.stack);
       diagnosticLogger.logRenderError('active-dots', actDotsErr);
     }
 
