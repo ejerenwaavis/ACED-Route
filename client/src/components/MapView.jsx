@@ -438,6 +438,52 @@ export default function MapView({
   // Auto-engage fullscreen & follow vehicle when navigation begins
   const lastCameraBearingRef = useRef(0);
 
+  // Ground-Truth Diagnostic Interval
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const interval = setInterval(() => {
+      try {
+        if (!map.getStyle()) return;
+
+        // 1. QUERY ACTUAL RENDERED OUTPUT
+        const rendered = map.queryRenderedFeatures({ layers: ['sequence-route', 'active-route'] });
+        const seqRendered = rendered.filter(f => f.layer.id === 'sequence-route').length;
+        const actRendered = rendered.filter(f => f.layer.id === 'active-route').length;
+
+        // 2. CHECK LINE-COLOR SPECIFICALLY
+        let seqColor, actColor, seqCasingColor, actCasingColor;
+        try { seqColor = map.getPaintProperty('sequence-route', 'line-color'); } catch (e) { seqColor = 'err'; }
+        try { actColor = map.getPaintProperty('active-route', 'line-color'); } catch (e) { actColor = 'err'; }
+        try { seqCasingColor = map.getPaintProperty('sequence-route-casing', 'line-color'); } catch (e) { seqCasingColor = 'err'; }
+        try { actCasingColor = map.getPaintProperty('active-route-casing', 'line-color'); } catch (e) { actCasingColor = 'err'; }
+
+        // 3. CHECK FOR A FILTER EXCLUDING EVERYTHING
+        let seqFilter, actFilter;
+        try { seqFilter = map.getFilter('sequence-route'); } catch (e) { seqFilter = 'err'; }
+        try { actFilter = map.getFilter('active-route'); } catch (e) { actFilter = 'err'; }
+
+        // 4. DUMP THE LIVE SOURCE
+        const seqSrc = map.getSource('sequence-route-source');
+        let srcData = 'null';
+        if (seqSrc && seqSrc._data) {
+          const coords = seqSrc._data.features?.[0]?.geometry?.coordinates || [];
+          srcData = `feats:${seqSrc._data.features?.length || 0} coords:${coords.length} first:${JSON.stringify(coords[0])} last:${JSON.stringify(coords[coords.length - 1])}`;
+        }
+
+        const report = `[GROUND-TRUTH] Rendered:{seq:${seqRendered}, act:${actRendered}} | Colors:{seq:${seqColor}, act:${actColor}, seqCas:${seqCasingColor}, actCas:${actCasingColor}} | Filters:{seq:${JSON.stringify(seqFilter)}, act:${JSON.stringify(actFilter)}} | SourceData:{${srcData}}`;
+        console.error(report);
+        diagnosticLogger.logRoutingEvent({ endpoint: 'GROUND-TRUTH', status: 'INFO', level: 'info', summary: report });
+
+      } catch (err) {
+        console.error('[GROUND-TRUTH] Diagnostic threw:', err.message);
+      }
+    }, 10000); // Run every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [mapLoaded]);
+
   useEffect(() => {
     if (isNavigating) {
       setIsFullscreen(true);
